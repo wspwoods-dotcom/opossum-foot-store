@@ -349,7 +349,7 @@
   </div>
 
   <div id="pane-settings" class="pane">
-    <div class="pane-head"><h2>Settings</h2><p>Opossum Foot beta.</p></div>
+    <div class="pane-head"><h2>Settings</h2><p>Opossum Foot.</p></div>
     <div class="scroll">
       <!-- Q90 (2026-10-01): Tanner — Trapping State + Home Ground live in one
            "Where You Trap" card, broad to precise. -->
@@ -469,10 +469,18 @@
         <p class="dim" style="margin:-6px 0 10px">Adds Latitude and Longitude columns to the CSV exports you download from Data. Off by default, so a spreadsheet you share never carries your pins.</p>
         </div>
       </div>
+      <div class="card" id="fullapp-card">
+        <div class="rowline"><div><strong>Opossum Foot — Full app</strong><br><span class="dim" id="fullapp-status">Free — three dozen sets on one line.</span></div></div>
+        <div class="sheet-actions" id="fullapp-actions" style="margin-top:10px">
+          <button class="btn-primary" id="btn-unlock" type="button">Unlock the full app — $14.99</button>
+          <button class="btn-secondary" id="btn-restore-purchase" type="button">Restore purchase</button>
+        </div>
+        <p class="dim" id="fullapp-note" style="margin-top:8px">One price, once. No subscription — every future update included.</p>
+      </div>
       <div class="card setsec" id="setsec-about">
         <button type="button" class="setsec-head" id="setsec-about-head" data-sec="setsec-about" aria-expanded="false"><span>About</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-about-body" hidden>
-        <div class="rowline"><img src="assets/icon-mark.png" class="about-logo" alt="Opossum Foot logo"><div><strong>Opossum Foot</strong><br><span class="dim">Beta · a pocket trapping notebook</span></div></div>
+        <div class="rowline"><img src="assets/icon-mark.png" class="about-logo" alt="Opossum Foot logo"><div><strong>Opossum Foot</strong><br><span class="dim">A pocket trapping notebook</span></div></div>
         <p class="dim">Logo &amp; brand artwork by Lydia Reichenbacher · Tight Chains Co.</p>
         <p class="dim">No accounts. No cloud. No analytics. Sponsors keep Opossum Foot free — no popups, no tracking, no nonsense.<br>Season reminders are reminders only — always verify with your state agency and local ordinances.</p>
         <p class="dim">Build <span id="build-stamp">—</span></p>
@@ -617,6 +625,19 @@
         <button class="btn-secondary" id="btn-track-save" type="button">Save to mileage log</button>
         <button class="btn-secondary" id="btn-track-show" type="button">Show the route on the map</button>
         <button class="btn-secondary" id="btn-track-discard" type="button">Discard this track</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="sheet-unlock" class="sheet">
+    <div class="sheet-grab"></div>
+    <div class="sheet-head"><h2>The full app</h2><button class="sheet-x" data-close type="button">×</button></div>
+    <div class="sheet-body">
+      <p id="unlock-copy">That is three dozen sets on this line — the free tier's full measure.</p>
+      <p>Opossum Foot is free for three dozen sets on one line — forever. The full app is every set on every line: one price, once. No account, nothing to sign into, no subscription — and every future update is included.</p>
+      <div class="sheet-actions" style="flex-direction:column;align-items:stretch;gap:10px">
+        <button class="btn-primary" id="btn-unlock-buy" type="button">Unlock the full app — $14.99</button>
+        <button class="btn-secondary" id="btn-unlock-restore" type="button">Restore purchase</button>
       </div>
     </div>
   </div>
@@ -1086,5 +1107,6 @@
 <script src="js/app.js"></script>
 <script src="js/markers.js"></script>
 <script src="js/tracking.js"></script>
+<script src="js/purchase.js"></script>
 </body>
 </html>

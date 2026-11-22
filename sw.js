@@ -4,7 +4,7 @@
  * No user data ever passes through here — sets/catches live in
  * localStorage/IndexedDB on the device only.
  */
-var SHELL_CACHE = 'opossum-foot-shell-v195';
+var SHELL_CACHE = 'opossum-foot-shell-v1';
 var TILE_CACHE = 'opossum-foot-tiles-v1';
 var TILE_META_CACHE = 'opossum-foot-tile-meta-v1';
 var MAX_TILES = 2000;
@@ -26,13 +26,13 @@ var SHELL = [
   './js/glyphs.js',
   './js/markers.js',
   './js/tracking.js',
+  './js/purchase.js',
   './js/citydb.js',
   './js/zipdb.js',
   './js/guide-content.js',
   './js/season-data.js',
   './js/gap-data.js',
   './manifest.json',
-  './version.txt',
   './assets/logo-primary.png',
   './assets/icon-mark.png',
   './assets/pin-track.svg',
@@ -113,14 +113,7 @@ self.addEventListener('activate', function (event) {
       return Promise.all(keys.map(function (k) {
         if (k !== SHELL_CACHE && k !== TILE_CACHE && k !== TILE_META_CACHE) return caches.delete(k);
       }));
-    }).then(function () { return self.clients.claim(); }).then(function () {
-      /* A new build just took charge while pages may still show the old one.
-         Tell open pages so the app can offer a one-tap reload (never force
-         one — the user might be mid-log). */
-      return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (wins) {
-        wins.forEach(function (w) { w.postMessage({ type: 'OF_NEW_VERSION' }); });
-      });
-    })
+    }).then(function () { return self.clients.claim(); })
   );
 });
 

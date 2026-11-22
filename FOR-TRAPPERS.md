@@ -12,22 +12,11 @@ of the season it tells you. No more guessing in February.
 
 ## Putting it on your phone
 
-**iPhone:**
-1. Open the beta link in Safari (not Messenger, not Facebook — Safari).
-2. Tap the Share button (the square with the arrow pointing up).
-3. Scroll down and tap "Add to Home Screen."
-4. Tap "Add." You'll see the Opossum Foot icon on your home screen now. Open
-   the app from that icon from here on out.
+**iPhone:** open the App Store, install Opossum Foot, and open it from the
+icon on your home screen.
 
-**Android:**
-1. Open the beta link in Chrome.
-2. Tap the three-dot menu in the corner.
-3. Tap "Add to Home screen" (or "Install app").
-4. Open the app from the new icon.
-
-**If a link comes to you in Messenger:** Messenger can't add things to your
-home screen. Long-press the link, tap Copy, open Safari (or Chrome) yourself,
-paste it in the address bar, and follow the steps above.
+**Android:** open Google Play, install Opossum Foot, and open it from the new
+icon.
 
 ## The first time you open it
 
@@ -513,22 +502,17 @@ the reports live in that one place.
 
 ## If something looks wrong
 
-- **The app looks old or stuck after an update:** force-quit your browser
-  completely (swipe it away) and reopen the app from the home-screen icon.
+- **The app looks old or stuck after an update:** force-quit the app
+  completely (swipe it away) and reopen it from the home-screen icon.
   Nine times out of ten, that fixes it.
 - **Tabs or features went missing:** they're probably just toggled off.
   Check Settings — Tabs on the Bottom Bar and Feature Toggles are per trap line, so
   one line can run lean while another keeps everything.
 - **Your location dot won't show:** check that you allowed location access
-  for the browser, and that you're not in airplane mode.
-- **Something's genuinely broken or confusing:** tell Tanner. That's what the
-  beta is for — he'd rather hear about it than have you fight it.
-
-## The beta deal
-
-This is a closed beta — a small circle on purpose. Please don't pass the link
-around. If something looks wrong, or you want something the app doesn't do
-yet, tell Tanner directly.
+  for the app, and that you're not in airplane mode.
+- **Something's genuinely broken or confusing:** tell Tanner — he'd rather
+  hear about it than have you fight it. If something looks wrong, or you want
+  something the app doesn't do yet, tell him directly.
 
 ## The fine print
 

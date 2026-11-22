@@ -6,12 +6,6 @@ Opossum Foot — the app, the name, the logo, the design, and everything in it �
 is the property of **Opossum Foot LLC**, an Iowa limited liability company.
 Copyright © 2026 Opossum Foot LLC. All rights reserved.
 
-## Closed beta — keep it in the circle
-
-You're using a closed beta, and the circle is small on purpose. Please don't
-share the beta link, copy the app, or pull it apart to build your own version
-of it. If someone wants in, point them at Tanner.
-
 ## No warranties
 
 The app is provided as-is. It was built to be solid, but no software is
@@ -79,6 +73,4 @@ in this app ever conflicts with an official source, the official source governs.
 
 ## The fine print, plainly
 
-This isn't legal advice, and it isn't the full terms of service — those are
-coming. By using the beta, you agree to use it legally and to keep the beta
-link to yourself.
+This isn't legal advice. By using the app, you agree to use it legally.
