@@ -94,9 +94,13 @@ jobs:
   # 1.0.0.
   ios-release:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "latest-stable"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
