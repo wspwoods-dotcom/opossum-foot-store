@@ -71,7 +71,9 @@ jobs:
         run: npx cap sync android
       - name: Build the debug APK
         working-directory: native/android
-        run: bash gradlew assembleDebug --console=plain
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --console=plain
       - uses: actions/upload-artifact@v4
         with:
           name: OpossumFoot-debug-apk
