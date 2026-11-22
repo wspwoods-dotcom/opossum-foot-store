@@ -1,0 +1,9 @@
+{
+  "appId": "com.opossumfoot.app",
+  "appName": "Opossum Foot",
+  "version": "1.0.0",
+  "build": 1,
+  "owner": "Opossum Foot LLC",
+  "iconBackground": "#141810",
+  "notes": "appId under the opossumfoot.com domain the LLC owns. Version matches APP_VERSION in js/app.js. Icons generated from Lydia's 1200px Icon master, design unaltered, placement matched to the approved icon-512."
+}
