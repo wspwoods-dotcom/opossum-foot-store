@@ -1,10 +1,14 @@
 # CI signing assets for the ios-release GitHub Actions job.
 #
-# The lane below creates a temporary keychain, then uses the App Store
-# Connect API key (written to ~/.appstoreconnect/private_keys by the
-# workflow step that runs before it) to fetch:
+# The lane below prepares everything the workflow's manual-signing
+# xcodebuild steps need, using the App Store Connect API key (written
+# to ~/.appstoreconnect/private_keys by the workflow step that runs
+# before it):
 #
-#   * an Apple Distribution certificate, installed in the CI keychain
+#   * an explicit CI keychain (fixed name and password, created with
+#     create_keychain — NOT setup_ci; see below)
+#   * an Apple Distribution certificate, created fresh on every run
+#     and installed in that keychain
 #   * an App Store provisioning profile for com.opossumfoot.app,
 #     installed in ~/Library/MobileDevice/Provisioning Profiles and
 #     also written to build/profiles/ so the workflow can read the
@@ -14,27 +18,96 @@
 # Development profile automatic signing demanded (and failed on, run
 # #9). Nothing fetched here is committed back to the repo; the
 # certificate, key, and profile live only on the runner.
+#
+# Why not setup_ci: in run #13 setup_ci's keychain never took effect
+# for cert, which fell back to its default — the login keychain, whose
+# password nobody knows on a stock runner — so setting the key
+# partition list failed and no signing identity was usable. An
+# explicit keychain with a known password, passed to cert directly,
+# removes that ambiguity.
+#
+# Why the certificate cleanup: run #13 also proved this API key can
+# CREATE a distribution certificate, but that certificate's private
+# key died with the runner. On the next run cert would find the
+# orphaned certificate on the portal, find no matching local key, and
+# fail. Deleting every portal distribution certificate first means
+# cert always creates a fresh certificate + key pair whose key lands
+# in our keychain.
 
 default_platform(:ios)
 
 platform :ios do
   desc "Fetch the distribution certificate and App Store profile for CI signing"
   lane :signing_assets do
-    setup_ci
-
     key_id = ENV.fetch("ASC_KEY_ID")
-    api_key = app_store_connect_api_key(
-      key_id: key_id,
-      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
-      key_filepath: File.expand_path("~/.appstoreconnect/private_keys/AuthKey_#{key_id}.p8")
+    issuer_id = ENV.fetch("ASC_ISSUER_ID")
+    key_filepath = File.expand_path("~/.appstoreconnect/private_keys/AuthKey_#{key_id}.p8")
+
+    # The CI keychain. The password is a fixed literal on purpose:
+    # this keychain exists only for this one run on an ephemeral
+    # runner, so the password protects nothing beyond the run — what
+    # matters is that cert is told the exact path and password, which
+    # the login-keychain fallback in run #13 never had.
+    keychain_name = "opossum-ci"
+    keychain_password = "opossum-ci-password"
+    keychain_path = File.expand_path("~/Library/Keychains/#{keychain_name}.keychain-db")
+
+    create_keychain(
+      path: keychain_path,
+      password: keychain_password,
+      default_keychain: true,
+      unlock: true,
+      timeout: 3600,
+      lock_when_sleeps: false
     )
 
-    # Apple Distribution certificate (development: false) in the
-    # temporary CI keychain created by setup_ci.
+    api_key = app_store_connect_api_key(
+      key_id: key_id,
+      issuer_id: issuer_id,
+      key_filepath: key_filepath
+    )
+
+    # Clear orphaned distribution certificates from the portal (see
+    # the header: run #13's certificate lost its private key with its
+    # runner). Fail loudly if this cannot be done — cert would only
+    # fail more cryptically against a leftover certificate.
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: key_id,
+      issuer_id: issuer_id,
+      filepath: key_filepath
+    )
+
+    distribution_types = [
+      Spaceship::ConnectAPI::Certificate::CertificateType::DISTRIBUTION,
+      Spaceship::ConnectAPI::Certificate::CertificateType::IOS_DISTRIBUTION
+    ]
+
+    begin
+      certificates = Spaceship::ConnectAPI::Certificate.all
+    rescue => e
+      UI.user_error!("Could not list portal certificates to clear orphaned distribution certificates: #{e.message}")
+    end
+
+    orphans = certificates.select { |certificate| distribution_types.include?(certificate.certificate_type) }
+    UI.message("Clearing #{orphans.count} existing distribution certificate(s) so cert creates a fresh pair")
+    orphans.each do |orphan|
+      begin
+        orphan.delete!
+        UI.message("Deleted distribution certificate #{orphan.id}")
+      rescue => e
+        UI.user_error!("Could not delete distribution certificate #{orphan.id}: #{e.message} — delete it under Certificates, Identifiers & Profiles, then re-run")
+      end
+    end
+
+    # Apple Distribution certificate (development: false), created
+    # fresh now that the portal is clear, with its private key
+    # imported into the CI keychain created above.
     cert(
       api_key: api_key,
       development: false,
-      output_path: "build/certs"
+      output_path: "build/certs",
+      keychain_path: keychain_path,
+      keychain_password: keychain_password
     )
 
     # App Store provisioning profile (development: false, adhoc:
