@@ -1,5 +1,9 @@
 {
   "appId": "com.opossumfoot.app",
   "appName": "Opossum Foot",
-  "webDir": "www"
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  }
 }
