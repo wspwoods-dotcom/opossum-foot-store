@@ -1,0 +1,78 @@
+name: Store builds — iOS + Android
+
+# Proves the store build compiles: iOS on a real Mac, Android on a Linux
+# runner (this project sandbox cannot keep a Gradle daemon connection
+# alive, so CI is the Android build home too). Signing and App Store
+# upload slot in once the App Store Connect API key is added as secrets
+# (Tanner's batched step) — this job builds unsigned on purpose.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Capacitor dependencies
+        working-directory: native
+        run: npm ci
+      - name: Assemble the web bundle
+        run: python3 assemble-www.py
+      - name: Sync the iOS project
+        working-directory: native
+        run: npx cap sync ios
+      - name: Compile (unsigned, simulator SDK)
+        working-directory: native/ios/App
+        run: |
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -20
+      - name: Archive (unsigned)
+        working-directory: native/ios/App
+        run: |
+          xcodebuild archive \
+            -project App.xcodeproj \
+            -scheme App \
+            -destination 'generic/platform=iOS' \
+            -archivePath $RUNNER_TEMP/OpossumFoot.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -20
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpossumFoot-xcarchive
+          path: ${{ runner.temp }}/OpossumFoot.xcarchive
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install Capacitor dependencies
+        working-directory: native
+        run: npm ci
+      - name: Assemble the web bundle
+        run: python3 assemble-www.py
+      - name: Sync the Android project
+        working-directory: native
+        run: npx cap sync android
+      - name: Build the debug APK
+        working-directory: native/android
+        run: ./gradlew assembleDebug --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpossumFoot-debug-apk
+          path: native/android/app/build/outputs/apk/debug/app-debug.apk
