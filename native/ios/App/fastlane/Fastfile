@@ -110,14 +110,16 @@ platform :ios do
       keychain_password: keychain_password
     )
 
-    # App Store provisioning profile (development: false, adhoc:
-    # false), installed for xcodebuild and copied to build/profiles
-    # under a fixed filename for the workflow to parse.
+    # App Store provisioning profile, installed for xcodebuild and
+    # copied to build/profiles under a fixed filename for the
+    # workflow to parse. The profile-type flags (development, adhoc)
+    # are deliberately omitted: passing both explicitly — even as
+    # false — trips fastlane's conflicting-options error ("You can't
+    # enable both :adhoc and :development", run #15), while sigh's
+    # defaults (both unset) already produce an App Store profile.
     sigh(
       api_key: api_key,
       app_identifier: "com.opossumfoot.app",
-      development: false,
-      adhoc: false,
       output_path: "build/profiles",
       filename: "OpossumFoot-AppStore.mobileprovision"
     )
