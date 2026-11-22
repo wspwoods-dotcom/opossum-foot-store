@@ -1,4 +1,4 @@
-/* Opossum Foot — beta PWA
+/* Opossum Foot — store build 1.0
  * Local-first trapping notebook. No accounts, no cloud, no analytics.
  * - Sets / logs / settings  -> localStorage (JSON)
  * - License photos / voice memos -> IndexedDB (blobs)
@@ -61,7 +61,7 @@ var STATES = [
   { code: "WY", name: "Wyoming", file: "wyoming-2026-27.json", provisional: false }
 ];
 var REMINDER_LINE = 'Reminder only — always verify with your state agency and local ordinances.';
-var APP_VERSION = 'beta 0.1 · build 2026-11-21in';
+var APP_VERSION = '1.0.0';
 /* Demo mode (?demo=1): seeds fictional data on a FRESH install only, for
    screenshots and in-person demos. Never touches existing data. */
 var DEMO = /[?&]demo=1\b/.test(location.search);
@@ -4315,6 +4315,7 @@ function saveSetForm() {
     normalizeTrapDetail(ns);
     if (ns.status === 'pulled') ns.datePulled = ns.dateSet;
     ns.lineId = activeLineId();
+    if (typeof Unlock !== 'undefined' && !Unlock.gateNewSet(ns.lineId)) return;
     Store.data.sets.push(ns);
     recordActivity(ns, 'created', ['Set created']); /* Q272: the trail's first entry */
     Store.save(); refreshMarkers(); closeSheets();
@@ -9719,6 +9720,7 @@ function importLineTransfer(data) {
 }
 
 function applyLineTransfer(data, srcName) {
+  if (typeof Unlock !== 'undefined' && !Unlock.gateImportLine()) return;
   var d = Store.data;
   if (!Array.isArray(d.importedTransfers)) d.importedTransfers = [];
   /* A name the receiver already uses gets a number — two lines with the same
@@ -10766,6 +10768,7 @@ function renderLines() {
   }
 }
 function showAddLineModal() {
+  if (typeof Unlock !== 'undefined' && !Unlock.gateNewLine()) return;
   showModal(
     '<h3>New Trap Line</h3>' +
     '<label class="field" for="m-line-name">Line name</label>' +
@@ -12844,93 +12847,16 @@ function boot() {
       if (DEMO_ACTIVE) toast('Demo mode — fictional data.');
     }, 3000);
   });
-  /* service worker: http(s) only — skipped on file:// */
+  /* service worker: http(s) only — skipped on file://.
+     Store build: the worker only keeps the shell and map tiles cached
+     for offline use. App updates come from the store, so the version-stamp era
+     version-stamp check and reload machinery are removed. */
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     window.addEventListener('load', function () {
-      var swReg = null;
-      navigator.serviceWorker.register('sw.js').then(function (reg) { swReg = reg; })
+      navigator.serviceWorker.register('sw.js')
         .catch(function () { /* offline still works without it */ });
-      /* A new build took charge while this page still runs the old one:
-         offer a one-tap reload. (hi: the version check below no longer
-         waits for the tap — see reloadOnceFor. This message path keeps
-         the banner as the manual fallback.) */
-      navigator.serviceWorker.addEventListener('message', function (ev) {
-        if (ev.data && ev.data.type === 'OF_NEW_VERSION') showUpdateBanner();
-      });
-      /* hi: when a new worker takes control of this page, ask whether
-         the running build is stale — checkBuildFresh spends the one
-         guarded reload if it is. A first-install claim finds the
-         running build matching and does nothing. */
-      navigator.serviceWorker.addEventListener('controllerchange', function () { checkBuildFresh(); });
-      /* hh: an installed PWA can sit on an old worker for days if the
-         browser only looks for a new one on cold navigation — ask for
-         an update check whenever the app returns to the foreground.
-         (The hg Mapbox field failure may have been exactly this: the
-         new worker never took charge on the phone.) */
-      function pokeSwUpdate() {
-        if (!swReg || !swReg.update) return;
-        try { swReg.update().catch(function () { /* offline: stay quiet */ }); }
-        catch (e) { /* an update check is a backstop, never a fault */ }
-      }
-      /* backstop: version stamp check on load, when the app is
-         foregrounded, and periodically */
-      checkBuildFresh();
-      document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkBuildFresh(); pokeSwUpdate(); } });
-      window.addEventListener('pageshow', function () { checkBuildFresh(); pokeSwUpdate(); });
-      setInterval(checkBuildFresh, 5 * 60 * 1000);
     });
   }
-}
-
-var _updateBannerShown = false;
-function showUpdateBanner() {
-  if (_updateBannerShown) return;
-  _updateBannerShown = true;
-  var d = document.createElement('div');
-  d.id = 'update-banner';
-  var s = document.createElement('span');
-  s.textContent = 'New version ready.';
-  var b = document.createElement('button');
-  b.type = 'button';
-  b.id = 'update-reload';
-  b.textContent = 'Reload';
-  b.addEventListener('click', function () { window.location.reload(); });
-  d.appendChild(s);
-  d.appendChild(b);
-  document.body.appendChild(d);
-}
-/* hi (2026-11-19): a detected update now takes over ONCE on its
-   own. Through hh, checkBuildFresh and the OF_NEW_VERSION message
-   both ended at the banner — if the tap never came, the open page
-   ran the old build under the new worker indefinitely (the
-   nag-only takeover defect). Now a mismatch spends a single
-   guarded reload: the guard is the target stamp kept in
-   localStorage, so the same target can never reload twice; if
-   the page comes back still mismatched, the banner returns as
-   the manual path. The guard clears as soon as the running build
-   matches the live stamp again. */
-var UPDATE_GUARD_KEY = 'of-reload-for';
-function reloadOnceFor(target) {
-  var seen = null;
-  try { seen = window.localStorage.getItem(UPDATE_GUARD_KEY); } catch (e) { /* storage unavailable: banner */ }
-  if (seen === target) { showUpdateBanner(); return; }
-  try { window.localStorage.setItem(UPDATE_GUARD_KEY, target); }
-  catch (e) { showUpdateBanner(); return; }
-  window.location.reload();
-}
-function checkBuildFresh() {
-  fetch('version.txt', { cache: 'no-store' }).then(function (r) {
-    if (!r.ok) throw 0;
-    return r.text();
-  }).then(function (t) {
-    t = (t || '').trim();
-    if (!t) return;
-    if (APP_VERSION.indexOf(t) !== -1) {
-      try { window.localStorage.removeItem(UPDATE_GUARD_KEY); } catch (e) { /* a spent guard may stay spent */ }
-      return;
-    }
-    reloadOnceFor(t);
-  }).catch(function () { /* offline: stay quiet */ });
 }
 
 document.addEventListener('DOMContentLoaded', boot);

@@ -20,6 +20,7 @@
 var Tracking = (function () {
   var mapRef = null, layer = null, savedLayer = null;
   var watchId = null, state = 'idle'; /* idle | tracking | paused */
+  var nativeWatchId = null, nativeWatchWanted = false; /* store wrapper: native background watcher */
   var pts = [], distM = 0, startT = 0, pauseAccum = 0, pauseStart = 0, timer = null;
   var line = null, lastFixAt = 0, lastAt = 0; /* lastAt: arrival clock of the last accepted fix (go) */
   var GAP_MS = 40000; /* gk: a fix arriving later than this after the previous one starts a new segment */
@@ -132,6 +133,56 @@ var Tracking = (function () {
     draw(); updateBar();
   }
   function onErr() { /* a dropped fix is not a stopped track; the watch retries on its own */ }
+  /* Store wrapper (2026-11-22): inside the app-store shell, route fixes
+     come from the native background-geolocation plugin (@capgo, free) so
+     the track keeps recording with the screen off and the app pocketed —
+     the browser watch cannot promise that, and the gk gap-break field
+     failure is what settled the requirement. The fixes land in the same
+     onPos as the browser watch, so the gap break, the teleport test, and
+     the still filter all judge them identically. In a plain browser
+     nothing changes: no Capacitor, no plugin, the watch in start() runs
+     exactly as it always has. */
+  function nativeBG() {
+    try {
+      if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.BackgroundGeolocation) return Capacitor.Plugins.BackgroundGeolocation;
+    } catch (e) {}
+    return null;
+  }
+  function onNativePos(loc) {
+    if (!loc) return;
+    onPos({
+      coords: {
+        latitude: loc.latitude, longitude: loc.longitude,
+        accuracy: loc.accuracy, altitude: loc.altitude,
+        speed: loc.speed, heading: loc.bearing
+      },
+      timestamp: (typeof loc.time === 'number' && isFinite(loc.time)) ? loc.time : Date.now()
+    });
+  }
+  function startNativeWatch(bg) {
+    nativeWatchWanted = true;
+    try {
+      var p = bg.addWatcher({
+        backgroundTitle: 'Opossum Foot',
+        backgroundMessage: 'Recording your route while you run your line.',
+        requestPermissions: true,
+        stale: false
+      }, function (loc) { if (loc) onNativePos(loc); });
+      if (p && typeof p.then === 'function') {
+        p.then(function (id) {
+          /* if Stop beat the registration, take the watcher straight back down */
+          if (!nativeWatchWanted) { try { bg.removeWatcher({ id: id }); } catch (e) {} return; }
+          nativeWatchId = id;
+        }).catch(function () {});
+      }
+    } catch (e) {}
+  }
+  function stopNativeWatch(bg) {
+    nativeWatchWanted = false;
+    if (nativeWatchId === null) return;
+    try { bg.removeWatcher({ id: nativeWatchId }); } catch (e) {}
+    nativeWatchId = null;
+  }
   /* gk: hold the screen awake while a track runs, so iOS does not
      suspend the app mid-run. Best-effort: unsupported browsers skip it,
      and iOS drops the lock when the app leaves the screen — it is
@@ -161,7 +212,9 @@ var Tracking = (function () {
     pts = []; distM = 0; startT = Date.now(); pauseAccum = 0; lastAt = 0;
     state = 'tracking';
     acquireWake();
-    watchId = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    var bg = nativeBG();
+    if (bg) { startNativeWatch(bg); }
+    else { watchId = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }); }
     timer = setInterval(updateBar, 500);
     $('track-bar').classList.add('show');
     syncFab();
@@ -194,6 +247,8 @@ var Tracking = (function () {
   function stop() {
     if (state === 'idle') return;
     releaseWake();
+    var bgStop = nativeBG();
+    if (bgStop) stopNativeWatch(bgStop);
     if (watchId !== null) { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} watchId = null; }
     if (timer) { clearInterval(timer); timer = null; }
     state = 'idle';
