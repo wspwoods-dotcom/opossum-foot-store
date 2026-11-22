@@ -82,11 +82,16 @@ jobs:
   # Signed App Store build, uploaded to TestFlight. Deliberate act only:
   # this job runs when the workflow is dispatched by hand, never on a
   # push (pushes still run the two unsigned proof jobs above, untouched).
-  # Signing is Xcode automatic signing driven by the App Store Connect
-  # API key held in the ASC_* repo secrets; -allowProvisioningUpdates
-  # lets Xcode create the distribution certificate and provisioning
-  # profile on first run. The build number is the workflow run number,
-  # so every upload is unique; the marketing version stays 1.0.0.
+  # Signing is MANUAL, because automatic signing at archive time demands
+  # an iOS App Development provisioning profile, which needs a
+  # registered device on the team (run #9 failed on exactly that: "Your
+  # team has no devices from which to generate a provisioning profile").
+  # Instead a fastlane lane uses the App Store Connect API key (ASC_*
+  # repo secrets) to fetch an Apple Distribution certificate into a
+  # temporary keychain plus an App Store provisioning profile — App
+  # Store profiles need no devices. The build number is the workflow
+  # run number, so every upload is unique; the marketing version stays
+  # 1.0.0.
   ios-release:
     if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15
@@ -111,38 +116,54 @@ jobs:
           mkdir -p ~/.appstoreconnect/private_keys
           printf '%s' "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
           chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
-      - name: Archive (signed, automatic signing via API key)
+      - name: Fetch signing assets (distribution cert + App Store profile)
         working-directory: native/ios/App
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          fastlane signing_assets
+          security cms -D -i build/profiles/OpossumFoot-AppStore.mobileprovision > $RUNNER_TEMP/profile.plist
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" $RUNNER_TEMP/profile.plist)
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" $RUNNER_TEMP/profile.plist)
+          echo "App Store profile: $PROFILE_NAME ($PROFILE_UUID)"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+      - name: Archive (signed, manual signing)
+        working-directory: native/ios/App
         run: |
           xcodebuild archive \
             -project App.xcodeproj \
             -scheme App \
             -destination 'generic/platform=iOS' \
             -archivePath $RUNNER_TEMP/OpossumFoot.xcarchive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM=VRV4XC9F44 \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }}
       - name: Export the IPA
         working-directory: native/ios/App
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
+          python3 - "$PROFILE_NAME" "$RUNNER_TEMP/ExportOptions.plist" <<'PYEOF'
+          import plistlib
+          import sys
+          options = {
+              "manageAppVersionAndBuildNumber": False,
+              "method": "app-store-connect",
+              "provisioningProfiles": {"com.opossumfoot.app": sys.argv[1]},
+              "signingStyle": "manual",
+              "stripSwiftSymbols": True,
+              "teamID": "VRV4XC9F44",
+              "uploadSymbols": True,
+          }
+          with open(sys.argv[2], "wb") as handle:
+              plistlib.dump(options, handle)
+          PYEOF
           xcodebuild -exportArchive \
             -archivePath $RUNNER_TEMP/OpossumFoot.xcarchive \
             -exportPath $RUNNER_TEMP/export \
-            -exportOptionsPlist ExportOptions.plist \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
       - uses: actions/upload-artifact@v4
         with:
           name: OpossumFoot-ipa
