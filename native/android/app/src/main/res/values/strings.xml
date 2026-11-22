@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Opossum Foot</string>
+    <string name="title_activity_main">Opossum Foot</string>
+    <string name="package_name">com.opossumfoot.app</string>
+    <string name="custom_url_scheme">com.opossumfoot.app</string>
+</resources>
