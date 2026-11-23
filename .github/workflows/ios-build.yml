@@ -183,3 +183,13 @@ jobs:
             --file "$IPA_PATH" \
             --apiKey "$ASC_KEY_ID" \
             --apiIssuer "$ASC_ISSUER_ID"
+      # altool only delivers the build; without this step it sits in
+      # App Store Connect assigned to no group (build 21, 2026-11-22)
+      # and TestFlight never offers it. The lane polls for processing
+      # to finish, then adds the build to the internal group.
+      - name: Distribute build to the internal TestFlight group
+        working-directory: native/ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: fastlane distribute build_number:${{ github.run_number }}
