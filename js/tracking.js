@@ -124,7 +124,21 @@ var Tracking = (function () {
       var d = hav(last, p), dt = (p.t - last.t) / 1000, adt = (now - lastAt) / 1000;
       if (d < 8 && dt < 20 && adt < 20) return;   /* standing still — GPS jitter is not travel */
       var gap = (dt * 1000 > GAP_MS) || (adt * 1000 > GAP_MS);
-      if (dt > 0 && d / dt > 24 && !gap) {
+      /* 2026-11-23 (Tanner's build-37 highway run): the 24 m/s ceiling
+         below was written for a trapper on foot, against wake-jump
+         diagonals — but sustained highway driving (65–70 mph ≈
+         29–31 m/s) sits ABOVE it, so honest fast legs were judged
+         teleports and eaten, worst in the background where fixes
+         arrive in clumps. A fix that carries its own speed reading
+         gets judged by agreement instead: if the GPS itself reports
+         vehicle speed and the implied speed roughly agrees, it is
+         travel, not teleportation. Fixes with no speed reading, or
+         one that disagrees, keep the original rule whole — a cached
+         wake fix typically reports speed 0 or nothing at all. */
+      var ownV = (typeof c.speed === 'number' && isFinite(c.speed) && c.speed >= 0) ? c.speed : null;
+      var impliedV = dt > 0 ? d / dt : 0;
+      var honestFast = ownV !== null && ownV >= 15 && impliedV <= ownV * 1.6 + 12;
+      if (dt > 0 && impliedV > 24 && !gap && !honestFast) {
         if (dt < 30) return;                     /* teleport spike, not a road — drop it */
         p.g = 1;                                 /* sustained relocation — break, never join */
       } else if (gap) { p.g = 1; }               /* gk: the recorder was asleep/away — break here, count nothing across the gap (a long Pause breaks the same way: paused travel was never recorded) */
@@ -197,6 +211,7 @@ var Tracking = (function () {
   function startNativeWatch(bg) {
     nativeWatchWanted = true;
     nativeAlive = false;
+    if (nativeWatchdog) { clearTimeout(nativeWatchdog); nativeWatchdog = null; }
     try {
       var p = bg.start({
         backgroundTitle: 'Opossum Foot',
@@ -241,8 +256,46 @@ var Tracking = (function () {
   function releaseWake() {
     if (wakeSentinel) { try { wakeSentinel.release(); } catch (e) {} wakeSentinel = null; }
   }
+  /* 2026-11-23 (build 37 field lesson): two ways a live track went
+     dead without a word. (1) The phone's location permission sat on
+     'While Using the App' — iOS cut the stream a couple of blocks
+     after the screen locked, and nothing in the app ever asked for
+     'Always' or explained the setting. At track start the app now
+     checks the permission itself, asks for background access when it
+     only holds While Using, and if the phone still won't grant it,
+     shows the trapper the exact Settings steps (sheet in index.html)
+     instead of letting his track die in silence. (2) A stream that
+     died mid-track was never re-armed: the bar blinked 'Tracking'
+     over a frozen counter. When the app comes back to the front with
+     a stale last fix, the native stream is started again; if it
+     still won't answer, the watchdog falls back as at start. */
+  function checkBgPermission(bg) {
+    try {
+      if (!bg || typeof bg.checkPermissions !== 'function') return;
+      bg.checkPermissions().then(function (st) {
+        if (!st) return;
+        var b = st.backgroundLocation;
+        if (b === 'always' || b === 'granted') return;
+        if (b === 'when_in_use' && typeof bg.requestPermissions === 'function') {
+          bg.requestPermissions({ permissions: ['backgroundLocation'] }).then(function (st2) {
+            var b2 = st2 && st2.backgroundLocation;
+            if (b2 !== 'always' && b2 !== 'granted') openSheet('sheet-tracking-permission');
+          }).catch(function () { openSheet('sheet-tracking-permission'); });
+        } else if (b === 'when_in_use' || b === 'denied' || st.location === 'denied') {
+          openSheet('sheet-tracking-permission');
+        }
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  function rearmIfStale() {
+    if (state !== 'tracking') return;
+    var staleMs = Date.now() - (lastAt || startT);
+    if (staleMs < 60000) return;
+    var bg = nativeBG();
+    if (bg) startNativeWatch(bg);   /* its watchdog re-engages the fallback if the stream stays silent */
+  }
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && state === 'tracking') acquireWake();
+    if (document.visibilityState === 'visible' && state === 'tracking') { acquireWake(); rearmIfStale(); }
   });
   function start() {
     if (state !== 'idle') return;
@@ -255,7 +308,7 @@ var Tracking = (function () {
     state = 'tracking';
     acquireWake();
     var bg = nativeBG();
-    if (bg) { startNativeWatch(bg); }
+    if (bg) { checkBgPermission(bg); startNativeWatch(bg); }
     else { startWebWatch(); }
     timer = setInterval(updateBar, 500);
     $('track-bar').classList.add('show');
