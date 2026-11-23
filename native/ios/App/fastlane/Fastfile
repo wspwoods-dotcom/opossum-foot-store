@@ -124,4 +124,43 @@ platform :ios do
       filename: "OpossumFoot-AppStore.mobileprovision"
     )
   end
+
+  desc "Add the just-uploaded build to the internal TestFlight group (no console taps)"
+  lane :distribute do |options|
+    key_id = ENV.fetch("ASC_KEY_ID")
+    issuer_id = ENV.fetch("ASC_ISSUER_ID")
+    key_filepath = File.expand_path("~/.appstoreconnect/private_keys/AuthKey_#{key_id}.p8")
+    build_number = options.fetch(:build_number).to_s
+    app_id = "6838062116"
+
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: key_id,
+      issuer_id: issuer_id,
+      filepath: key_filepath
+    )
+
+    # The altool upload returns before App Store Connect has finished
+    # ingesting the build, so poll (up to ~15 minutes) for this build
+    # number to appear and finish processing before touching the
+    # group. Build 21 (2026-11-22) sat groupless because altool only
+    # delivers; this lane is the delivery's second half.
+    build = nil
+    30.times do
+      builds = Spaceship::ConnectAPI::Build.all(app_id: app_id, sort: "-uploadedDate", limit: 5)
+      candidate = builds.find { |b| b.version.to_s == build_number }
+      if candidate && candidate.processing_state == "VALID"
+        build = candidate
+        break
+      end
+      sleep(30)
+    end
+    UI.user_error!("Build #{build_number} never became ready in App Store Connect") if build.nil?
+
+    groups = Spaceship::ConnectAPI::BetaGroup.all(app_id: app_id)
+    group = groups.find { |g| g.name == "Mine" }
+    UI.user_error!("Internal TestFlight group 'Mine' not found") if group.nil?
+
+    group.add_builds(builds: [build])
+    UI.success("Build #{build_number} added to TestFlight group 'Mine'")
+  end
 end
