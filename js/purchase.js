@@ -6,9 +6,14 @@
    account and no payment details, same promise as everything else here.
    In a plain browser there is no store to buy from: the gates still hold
    and the buttons explain where unlocking happens. Existing records are
-   never taken away — the gates only stand at the doors that ADD a set
-   past the free measure, a second line, or an imported second line.
-   Restoring your own backup is never gated. */
+   never taken away and edits are never gated — the gates stand at the
+   doors that ADD: a set past the free measure, a second line, and every
+   import that would carry a locked app past the measure (pin files,
+   shared lines, and backups alike — one law at every door, Tanner's
+   rulings 2026-11-23). Ownership is always checked FIRST and silently:
+   a purchase found means the app is unlocked and no import is ever
+   counted; the counting only ever happens on an app still locked after
+   that check, and it happens at the door, before any content lands. */
 var Unlock = (function () {
   var PRODUCT_ID = 'com.opossumfoot.app.full';
   var FREE_SETS = 36;
@@ -28,6 +33,12 @@ var Unlock = (function () {
     Store.data.unlocked = !!v;
     Store.save();
     renderStatus();
+    /* an import that was waiting at the door on this unlock walks in */
+    if (v && pendingProceed) {
+      var p = pendingProceed;
+      pendingProceed = null;
+      try { p(); } catch (e) {}
+    }
   }
   function setsOnLine(lineId) {
     if (!window.Store || !Store.data) return 0;
@@ -38,6 +49,50 @@ var Unlock = (function () {
   function lineCount() {
     return (window.Store && Store.data && Store.data.lines) ? Store.data.lines.length : 0;
   }
+
+  /* ---- ownership, checked first and silently (2026-11-23) ----
+     The boot check reads the store's own entitlement list
+     (getPurchases) and NEVER calls restorePurchases: restore syncs
+     with the store and makes iOS demand an account sign-in, which is
+     how build 19 greeted Tanner with a sign-in prompt at launch in an
+     app that promises "nothing to sign into." Reading entitlements
+     prompts for nothing. The sync — and any sign-in — now happens
+     only when the user taps Restore himself. Import gates wait for
+     this check via whenEntitled, so a paid man's restore is never
+     counted; if the check cannot finish (no connection), the gates
+     proceed after a short wait with the app still locked, and the
+     warning sheet's own Restore button is the remedy. */
+  var entitlementDone = false;
+  var entitlementWaiters = [];
+  var pendingProceed = null;
+
+  function finishEntitlement() {
+    if (entitlementDone) return;
+    entitlementDone = true;
+    var w = entitlementWaiters;
+    entitlementWaiters = [];
+    w.forEach(function (cb) { try { cb(); } catch (e) {} });
+  }
+  function checkEntitlementQuiet() {
+    var np = plugin();
+    if (!np || !np.getPurchases) { finishEntitlement(); return; }
+    var timer = setTimeout(finishEntitlement, 4000);
+    np.getPurchases().then(function (purchases) {
+      clearTimeout(timer);
+      if (ownsFullApp(purchases)) setUnlocked(true);
+      finishEntitlement();
+    }).catch(function () {
+      clearTimeout(timer);
+      finishEntitlement();
+    });
+  }
+  function whenEntitled(cb) {
+    if (entitlementDone) { cb(); return; }
+    entitlementWaiters.push(cb);
+  }
+  /* The unlock sheet was dismissed without unlocking: whatever import
+     was waiting at the door is set down, not carried. */
+  function sheetDismissed() { pendingProceed = null; }
 
   /* ---- the gates: true = walk through, false = the sheet is up ---- */
   function gateNewSet(lineId) {
@@ -50,18 +105,65 @@ var Unlock = (function () {
     openUnlockSheet('line');
     return false;
   }
-  function gateImportLine() {
-    if (isUnlocked()) return true;
-    if (lineCount() >= 1) { openUnlockSheet('line'); return false; }
-    return true;
+  /* The import gates (2026-11-23): asynchronous, proceed-style. Each
+     waits for the silent ownership check first; an unlocked app walks
+     through untouched. A locked app is counted AT THE DOOR — before
+     any content lands — and an over-measure import stops at the
+     warning sheet, which names the free measure, where he stands, and
+     the two roads onward (unlock, or restore a purchase). If he
+     unlocks from that sheet, the waiting import proceeds. */
+  function gateImportLine(incomingSets, proceed) {
+    whenEntitled(function () {
+      if (isUnlocked()) { proceed(); return; }
+      if (lineCount() >= 1) { pendingProceed = proceed; openUnlockSheet('line'); return; }
+      if ((incomingSets || 0) > FREE_SETS) { pendingProceed = proceed; openUnlockSheet('transfer', { fileSets: incomingSets }); return; }
+      proceed();
+    });
+  }
+  function gatePinImport(info, proceed) {
+    whenEntitled(function () {
+      if (isUnlocked()) { proceed(); return; }
+      if ((info.lineSets || 0) + (info.newSets || 0) > FREE_SETS) {
+        pendingProceed = proceed;
+        openUnlockSheet('pins', info);
+        return;
+      }
+      proceed();
+    });
+  }
+  function gateBackupRestore(info, proceed) {
+    whenEntitled(function () {
+      if (isUnlocked()) { proceed(); return; }
+      var over = info.mode === 'merge'
+        ? (info.mergeLineSets || 0) > FREE_SETS
+        : (info.fileSets || 0) > FREE_SETS || (info.fileLines || 1) > 1;
+      if (over) { pendingProceed = proceed; openUnlockSheet('backup', info); return; }
+      proceed();
+    });
   }
 
-  function openUnlockSheet(reason) {
+  function openUnlockSheet(reason, detail) {
     var copy = $('unlock-copy');
     if (copy) {
-      copy.textContent = reason === 'line'
-        ? 'A second line is part of the full app. Free covers one line — three dozen sets on it, forever.'
-        : 'That is three dozen sets on this line — the free tier\u2019s full measure.';
+      detail = detail || {};
+      if (reason === 'line') {
+        copy.textContent = 'A second line is part of the full app. Free covers one line — three dozen sets on it, forever.';
+      } else if (reason === 'pins') {
+        copy.textContent = 'That file would put ' + ((detail.lineSets || 0) + (detail.newSets || 0)) +
+          ' sets on this line — free is three dozen sets on one line. Delete sets until it fits, or unlock the full app and bring them all in.';
+      } else if (reason === 'backup') {
+        copy.textContent = detail.mode === 'merge'
+          ? 'That import would put ' + (detail.mergeLineSets || 0) +
+            ' sets on this line — free is three dozen sets on one line. Unlock the full app, or restore a purchase you already made, and it all comes in.'
+          : 'That backup holds ' + (detail.fileSets || 0) + ' sets' +
+            ((detail.fileLines || 1) > 1 ? ' on ' + detail.fileLines + ' lines' : '') +
+            ' — past the free tier\u2019s three dozen sets on one line. Unlock the full app, or restore a purchase you already made, and it restores whole.';
+      } else if (reason === 'transfer') {
+        copy.textContent = 'That shared line carries ' + (detail.fileSets || 0) +
+          ' sets — past the free tier\u2019s three dozen on one line. Unlock the full app and it lands whole.';
+      } else {
+        copy.textContent = 'That is three dozen sets on this line — the free tier\u2019s full measure.';
+      }
     }
     renderStatus();
     openSheet('sheet-unlock');
@@ -144,9 +246,17 @@ var Unlock = (function () {
     var r2 = $('btn-unlock-restore'); if (r2) r2.onclick = function () { restore(false); };
     renderStatus();
     refreshPrice();
-    /* a trapper who bought, then deleted and reinstalled, should find the
-       app already unlocked — ask the store quietly, once, at first launch */
-    if (plugin() && !isUnlocked()) restore(true);
+    /* dismissing the unlock sheet (its ×, or the scrim) sets down any
+       import waiting at its door */
+    var scrim = $('scrim');
+    if (scrim) scrim.addEventListener('click', sheetDismissed);
+    var sheetX = document.querySelector('#sheet-unlock [data-close]');
+    if (sheetX) sheetX.addEventListener('click', sheetDismissed);
+    /* a trapper who bought, then deleted and reinstalled, should find
+       the app already unlocked — read the store's entitlements quietly,
+       once, at first launch; this can never raise a sign-in prompt */
+    if (isUnlocked()) finishEntitlement();
+    else checkEntitlementQuiet();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
@@ -156,11 +266,18 @@ var Unlock = (function () {
     gateNewSet: gateNewSet,
     gateNewLine: gateNewLine,
     gateImportLine: gateImportLine,
+    gatePinImport: gatePinImport,
+    gateBackupRestore: gateBackupRestore,
     buy: buy,
     restore: restore,
     renderStatus: renderStatus,
     PRODUCT_ID: PRODUCT_ID,
     FREE_SETS: FREE_SETS,
-    _test: { setUnlocked: setUnlocked, setsOnLine: setsOnLine, ownsFullApp: ownsFullApp }
+    _test: {
+      setUnlocked: setUnlocked, setsOnLine: setsOnLine, ownsFullApp: ownsFullApp,
+      finishEntitlement: finishEntitlement,
+      hasPending: function () { return !!pendingProceed; },
+      sheetDismissed: sheetDismissed
+    }
   };
 })();
