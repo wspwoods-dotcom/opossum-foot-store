@@ -140,17 +140,20 @@ platform :ios do
     )
 
     # The altool upload returns before App Store Connect has finished
-    # ingesting the build, so poll (up to ~15 minutes) for this build
+    # ingesting the build, so poll (up to ~30 minutes) for this build
     # number to appear and finish processing before touching the
     # group. Build 21 (2026-11-22) sat groupless because altool only
     # delivers; this lane is the delivery's second half.
     build = nil
-    30.times do
+    60.times do
       builds = Spaceship::ConnectAPI::Build.all(app_id: app_id, sort: "-uploadedDate", limit: 5)
       candidate = builds.find { |b| b.version.to_s == build_number }
-      if candidate && candidate.processing_state == "VALID"
-        build = candidate
-        break
+      if candidate
+        UI.message("Build #{build_number}: processing_state=#{candidate.processing_state}")
+        if candidate.processing_state == "VALID"
+          build = candidate
+          break
+        end
       end
       sleep(30)
     end
@@ -160,7 +163,42 @@ platform :ios do
     group = groups.find { |g| g.name == "Mine" }
     UI.user_error!("Internal TestFlight group 'Mine' not found") if group.nil?
 
-    group.add_builds(builds: [build])
-    UI.success("Build #{build_number} added to TestFlight group 'Mine'")
+    # The "Mine" group has automatic distribution ON, and it beat this
+    # lane to the build on run #27 (2026-11-23): the build reached the
+    # group on its own, and the lane's add then failed the run even
+    # though delivery had already happened. So the lane's real job is
+    # to VERIFY membership and add only when missing — and an add that
+    # loses the race is a success once membership is confirmed.
+    in_group = lambda do
+      begin
+        fresh = Spaceship::ConnectAPI::Build.all(app_id: app_id, sort: "-uploadedDate", limit: 10, includes: "betaGroups")
+        me = fresh.find { |b| b.id == build.id }
+        if me && me.respond_to?(:beta_groups) && me.beta_groups
+          me.beta_groups.any? { |g| g.id == group.id }
+        else
+          false
+        end
+      rescue => e
+        UI.message("Membership check unavailable: #{e.message}")
+        false
+      end
+    end
+
+    if in_group.call
+      UI.success("Build #{build_number} is already in TestFlight group 'Mine' (auto-distribution)")
+    else
+      begin
+        group.add_builds(builds: [build])
+        UI.success("Build #{build_number} added to TestFlight group 'Mine'")
+      rescue => e
+        UI.message("add_builds raised: #{e.message} — waiting, then verifying membership before judging")
+        sleep(30)
+        if in_group.call
+          UI.success("Build #{build_number} is in TestFlight group 'Mine' (confirmed after add raced auto-distribution)")
+        else
+          UI.user_error!("Build #{build_number} could not be added to TestFlight group 'Mine': #{e.message}")
+        end
+      end
+    end
   end
 end
