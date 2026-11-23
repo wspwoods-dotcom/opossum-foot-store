@@ -2574,7 +2574,13 @@ function initMap() {
      test service — and the APFO endpoint does not answer.) Native NAIP
      detail ends near z18; past that Leaflet upscales. */
   var naip = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
-    { maxZoom: 22, maxNativeZoom: 18, attribution: 'Imagery © USGS' });
+    { maxZoom: 22, maxNativeZoom: 16, attribution: 'Imagery © USGS' });
+  /* 2026-11-23 (Tanner field report, build 27): maxNativeZoom was 18,
+     but the USGS cache serves no tiles past z16 in practice — probed
+     200 through z16, 404 at z17/z18 at Tanner's location and at Des
+     Moines — so at field zoom the NAIP layer asked for tiles that do
+     not exist and painted black while every Mapbox view worked. At
+     maxNativeZoom 16 Leaflet upscales the deepest real tiles instead. */
   var mapboxStreet = L.tileLayer(mbTileUrl('streets-v12'),
     { maxZoom: 22, maxNativeZoom: 19, referrerPolicy: 'unsafe-url', attribution: '© Mapbox © OpenStreetMap' });
   var mapboxTopo = L.tileLayer(mbTileUrl('outdoors-v12'),
@@ -9505,6 +9511,13 @@ function importDataFile(file) {
       toast('Not an Opossum Foot import file.');
       return;
     }
+    /* 2026-11-23 (Tanner's gate law): a locked app is counted at this
+       door before anything lands. Ownership was already checked
+       silently at launch, so an unlocked app never reaches the count.
+       Wholesale (empty phone): the file's own measure — its sets and
+       its lines. Merge: the sets that would stand on the active line.
+       Within the measure the restore proceeds exactly as before. */
+    function applyBackup() {
     /* hy (Q286): a genuine full backup (it carries its lines) landing
        on a phone with nothing on it restores WHOLESALE — lines, sets,
        logs, trips with their tracks, landowners, and markers come
@@ -9628,6 +9641,17 @@ function importDataFile(file) {
     Store.save();
     refreshMarkers(); renderHistory(); renderTotals();
     toast('Imported ' + nSets + ' sets, ' + nLogs + ' logs' + (nTrips ? ' and ' + nTrips + ' trips' : '') + '.');
+    }
+    if (typeof Unlock !== 'undefined' && Unlock.gateBackupRestore) {
+      var wholesaleGate = data.app === 'opossum-foot' && Array.isArray(data.lines) && data.lines.length &&
+        !(Store.data.sets || []).length && !(Store.data.logs || []).length;
+      Unlock.gateBackupRestore({
+        mode: wholesaleGate ? 'wholesale' : 'merge',
+        fileSets: data.sets.length,
+        fileLines: Array.isArray(data.lines) ? data.lines.length : 1,
+        mergeLineSets: activeSets().length + data.sets.length
+      }, applyBackup);
+    } else applyBackup();
   };
   reader.readAsText(file);
 }
@@ -9734,7 +9758,16 @@ function importLineTransfer(data) {
 }
 
 function applyLineTransfer(data, srcName) {
-  if (typeof Unlock !== 'undefined' && !Unlock.gateImportLine()) return;
+  /* 2026-11-23 (Tanner's gate law): the transfer door is counted like
+     every other — a second line, or a first line past the free
+     measure, waits at the warning on a locked app. */
+  if (typeof Unlock !== 'undefined' && Unlock.gateImportLine) {
+    Unlock.gateImportLine(data.sets.length, function () { applyLineTransferNow(data, srcName); });
+    return;
+  }
+  applyLineTransferNow(data, srcName);
+}
+function applyLineTransferNow(data, srcName) {
   var d = Store.data;
   if (!Array.isArray(d.importedTransfers)) d.importedTransfers = [];
   /* A name the receiver already uses gets a number — two lines with the same
@@ -10500,6 +10533,31 @@ function askPinDuplicate(pin, set, cb) {
   $('m-pin-delete').onclick = function () { closeModal(); cb('delete'); };
 }
 function runPinImport(pins, noLoc) {
+  /* 2026-11-23 (Tanner's gate law): pin files are counted at the door
+     on a locked app, before any pin lands. Only genuinely new sets
+     count — a pin that lands on a set already here (or on another
+     incoming pin) creates nothing, whichever way its duplicate is
+     settled. Over the measure, the import waits at the warning: he
+     deletes down until it fits, or unlocks and brings them all in. */
+  if (typeof Unlock !== 'undefined' && Unlock.gatePinImport) {
+    var standing = activeSets().slice();
+    var fresh = 0;
+    pins.forEach(function (pin) {
+      var dup = false;
+      for (var j = 0; j < standing.length; j++) {
+        if (pinNearSet(pin, standing[j])) { dup = true; break; }
+      }
+      if (!dup) { fresh++; standing.push({ lat: pin.lat, lng: pin.lng }); }
+    });
+    Unlock.gatePinImport(
+      { lineSets: activeSets().length, newSets: fresh },
+      function () { runPinImportNow(pins, noLoc); }
+    );
+    return;
+  }
+  runPinImportNow(pins, noLoc);
+}
+function runPinImportNow(pins, noLoc) {
   var lineId = activeLineId();
   if (!lineId) { toast('Add a trap line first.'); return; }
   var existing = activeSets().slice();
