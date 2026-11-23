@@ -21,6 +21,7 @@ var Tracking = (function () {
   var mapRef = null, layer = null, savedLayer = null;
   var watchId = null, state = 'idle'; /* idle | tracking | paused */
   var nativeWatchId = null, nativeWatchWanted = false; /* store wrapper: native background watcher */
+  var nativeAlive = false, nativeWatchdog = null, webFallback = false; /* v8 bridge health: has the native stream proven itself, is the browser watch standing in for it */
   var pts = [], distM = 0, startT = 0, pauseAccum = 0, pauseStart = 0, timer = null;
   var line = null, lastFixAt = 0, lastAt = 0; /* lastAt: arrival clock of the last accepted fix (go) */
   var GAP_MS = 40000; /* gk: a fix arriving later than this after the previous one starts a new segment */
@@ -150,6 +151,16 @@ var Tracking = (function () {
   }
   function onNativePos(loc) {
     if (!loc) return;
+    if (!nativeAlive) {
+      /* the native stream has proven itself: stand the watchdog down,
+         and retire the browser fallback watch if it was standing in */
+      nativeAlive = true;
+      if (nativeWatchdog) { clearTimeout(nativeWatchdog); nativeWatchdog = null; }
+      if (webFallback) {
+        if (watchId !== null) { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} watchId = null; }
+        webFallback = false;
+      }
+    }
     onPos({
       coords: {
         latitude: loc.latitude, longitude: loc.longitude,
@@ -159,28 +170,58 @@ var Tracking = (function () {
       timestamp: (typeof loc.time === 'number' && isFinite(loc.time)) ? loc.time : Date.now()
     });
   }
+  /* v8 contract — verified 2026-11-23 against the shipped definitions
+     of @capgo/background-geolocation 8.6.5: the plugin has NO
+     addWatcher. Locations stream from start(options, callback) and end
+     with stop(); errors arrive through the callback's error argument
+     ("don't rely on promise rejection"). The bridge as first written
+     called addWatcher: the call threw inside a silent try/catch, the
+     native branch had already displaced the browser watch, and the
+     recorder received nothing at all — build 35's first pocket test
+     (Tanner, 2026-11-23): the dot followed, no track drew, 0 ft.
+     Two standing lessons: verify a plugin's API against its own
+     shipped definitions, never against a bench fake shaped from
+     memory; and a tracking intake must never fail silently — if the
+     native stream cannot prove itself alive, the browser watch takes
+     over while the app is open and the toast says so plainly. */
+  function startWebWatch() {
+    if (watchId !== null) return;
+    watchId = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  }
+  function engageFallback() {
+    if (state !== 'tracking' || webFallback) return;
+    webFallback = true;
+    startWebWatch();
+    toast('Background recording did not start — recording from the phone\u2019s GPS while the app is open.');
+  }
   function startNativeWatch(bg) {
     nativeWatchWanted = true;
+    nativeAlive = false;
     try {
-      var p = bg.addWatcher({
+      var p = bg.start({
         backgroundTitle: 'Opossum Foot',
         backgroundMessage: 'Recording your route while you run your line.',
         requestPermissions: true,
-        stale: false
-      }, function (loc) { if (loc) onNativePos(loc); });
-      if (p && typeof p.then === 'function') {
-        p.then(function (id) {
-          /* if Stop beat the registration, take the watcher straight back down */
-          if (!nativeWatchWanted) { try { bg.removeWatcher({ id: id }); } catch (e) {} return; }
-          nativeWatchId = id;
-        }).catch(function () {});
-      }
-    } catch (e) {}
+        stale: false,
+        distanceFilter: 0
+      }, function (loc, err) {
+        if (err) { engageFallback(); return; }
+        if (loc) onNativePos(loc);
+      });
+      if (p && typeof p.then === 'function') p.then(function () {}, function () { engageFallback(); });
+    } catch (e) { engageFallback(); }
+    /* the watchdog: twenty seconds with no native fix at all means
+       the stream is not coming — take the watch with the browser
+       stream rather than record nothing in silence */
+    nativeWatchdog = setTimeout(function () {
+      nativeWatchdog = null;
+      if (!nativeAlive) engageFallback();
+    }, 20000);
   }
   function stopNativeWatch(bg) {
     nativeWatchWanted = false;
-    if (nativeWatchId === null) return;
-    try { bg.removeWatcher({ id: nativeWatchId }); } catch (e) {}
+    if (nativeWatchdog) { clearTimeout(nativeWatchdog); nativeWatchdog = null; }
+    try { var p = bg.stop(); if (p && typeof p.catch === 'function') p.catch(function () {}); } catch (e) {}
     nativeWatchId = null;
   }
   /* gk: hold the screen awake while a track runs, so iOS does not
@@ -210,11 +251,12 @@ var Tracking = (function () {
     endDrawRoute(); /* gt: a live track supersedes a drawn route in flight */
     clearSaved();
     pts = []; distM = 0; startT = Date.now(); pauseAccum = 0; lastAt = 0;
+    webFallback = false;
     state = 'tracking';
     acquireWake();
     var bg = nativeBG();
     if (bg) { startNativeWatch(bg); }
-    else { watchId = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }); }
+    else { startWebWatch(); }
     timer = setInterval(updateBar, 500);
     $('track-bar').classList.add('show');
     syncFab();
