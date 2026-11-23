@@ -14,9 +14,15 @@
 //
 // Guardrails:
 //  - Only the three styles the app ships, only numeric tile coords.
-//  - Only requests whose Referer is one of the app's own origins
-//    (capacitor:// from the native app, the site's own origins, or
-//    the GitHub Pages origin) — not an open tile service.
+//  - NO Referer gate (removed 2026-11-23, build 27 field failure):
+//    the first version refused any request whose Referer was not on
+//    an allowlist — but WKWebView sends no usable Referer for tile
+//    <img> loads from the capacitor:// origin, so the proxy refused
+//    the app's own tiles and the map stayed black. The token behind
+//    this worker is the app's PUBLIC token (it ships in the app), so
+//    the gate bought nothing and cost the map. Style/coords/method
+//    constraints stay; if quota abuse ever appears, answer it with a
+//    Cloudflare rate-limit rule on the route, not a header gate.
 //  - Mapbox's own Cache-Control is passed through untouched; the
 //    worker stores nothing beyond what those headers allow
 //    (Mapbox terms: tiles may be cached at most 30 days; Mapbox
@@ -28,26 +34,10 @@ const STYLES = new Set([
   "outdoors-v12",
 ]);
 
-const ALLOWED_REFERER_PREFIXES = [
-  "capacitor://",
-  "https://localhost",
-  "http://localhost",
-  "https://opossumfoot.com",
-  "https://wspwoods-dotcom.github.io",
-];
-
 export default {
   async fetch(request, env) {
     if (request.method !== "GET") {
       return new Response("Method not allowed", { status: 405 });
-    }
-
-    const referer = request.headers.get("Referer") || "";
-    const refererOk = ALLOWED_REFERER_PREFIXES.some((p) =>
-      referer.startsWith(p)
-    );
-    if (!refererOk) {
-      return new Response("Forbidden", { status: 403 });
     }
 
     // /tiles/<style>/256/<z>/<x>/<y>  (an optional .png suffix is tolerated)
