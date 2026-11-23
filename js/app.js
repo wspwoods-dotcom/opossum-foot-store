@@ -2552,7 +2552,21 @@ function initMap() {
      z22 map cap; tiles bypass sw.js per hh). NAIP stays as the one
      non-Mapbox aerial, now standing bare. */
   var MAPBOX_TOKEN = 'pk.eyJ1Ijoib3Bvc3N1bWZvb3RhcHAiLCJhIjoiY213bXhmaThzMDRndjMwcGxmOXpsNjUwOCJ9.v0VzgWCuGzscCePZmw2AjQ';
-  var mapboxSat = L.tileLayer('https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/256/{z}/{x}/{y}?access_token=' + MAPBOX_TOKEN,
+  /* Store build 22 (2026-11-22): in the native app the WebView origin
+     is capacitor://localhost, which Mapbox's tile door refuses (403)
+     whatever the hostname — and Capacitor silently refuses an https
+     scheme on iOS, which is why build 21's fix never took. Native
+     builds therefore fetch Mapbox tiles through the proxy on
+     opossumfoot.com (tile-proxy/worker.js), which asks Mapbox
+     server-side from an allowed origin. The web app's origin is
+     allowed, so it keeps asking Mapbox directly. */
+  var OF_NATIVE = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  function mbTileUrl(style) {
+    return OF_NATIVE
+      ? 'https://opossumfoot.com/tiles/' + style + '/256/{z}/{x}/{y}'
+      : 'https://api.mapbox.com/styles/v1/mapbox/' + style + '/tiles/256/{z}/{x}/{y}?access_token=' + MAPBOX_TOKEN;
+  }
+  var mapboxSat = L.tileLayer(mbTileUrl('satellite-streets-v12'),
     { maxZoom: 22, maxNativeZoom: 19, referrerPolicy: 'unsafe-url', attribution: 'Imagery © Mapbox © OpenStreetMap © Maxar' });
   /* gy: second aerial — USDA NAIP (public domain), served as standard
      tiles by the USGS National Map's USGSImageryOnly cache. (USDA's own
@@ -2561,9 +2575,9 @@ function initMap() {
      detail ends near z18; past that Leaflet upscales. */
   var naip = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
     { maxZoom: 22, maxNativeZoom: 18, attribution: 'Imagery © USGS' });
-  var mapboxStreet = L.tileLayer('https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}?access_token=' + MAPBOX_TOKEN,
+  var mapboxStreet = L.tileLayer(mbTileUrl('streets-v12'),
     { maxZoom: 22, maxNativeZoom: 19, referrerPolicy: 'unsafe-url', attribution: '© Mapbox © OpenStreetMap' });
-  var mapboxTopo = L.tileLayer('https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}?access_token=' + MAPBOX_TOKEN,
+  var mapboxTopo = L.tileLayer(mbTileUrl('outdoors-v12'),
     { maxZoom: 22, maxNativeZoom: 19, referrerPolicy: 'unsafe-url', attribution: '© Mapbox © OpenStreetMap' });
   mapboxSat.addTo(map);
   /* Q74 (2026-10-01): Tanner — left-side stack is layers, zoom, weather, top
