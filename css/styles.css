@@ -1,4 +1,4 @@
-/* Opossum Foot — beta PWA styles
+/* Opossum Foot — store build styles
    Mobile-first, iOS Safari friendly. Big touch targets for cold hands.
    Rugged field palette: dark moss, brass, cream. */
 
@@ -117,7 +117,10 @@ html.of-standalone .view { height: 100vh; }
 .onboard-card { width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 26px 22px; }
 .onboard-card h2 { margin: 0 0 6px; font-size: 24px; }
 .onboard-card p { color: var(--muted); font-size: 15px; margin: 0 0 18px; }
-.onboard-card img { width: 84px; height: 84px; border-radius: 18px; display: block; margin-bottom: 14px; object-fit: contain; padding: 8px; box-sizing: border-box; background: radial-gradient(ellipse at 50% 40%, #2B341B 0%, #141810 78%); }
+/* 2026-11-23: scoped to the card's own logo (direct child) — as written
+   it forced EVERY image in the card to 84px, blowing the buttons' 20px
+   icons up to logo size on both onboarding cards. */
+.onboard-card > img { width: 84px; height: 84px; border-radius: 18px; display: block; margin-bottom: 14px; object-fit: contain; padding: 8px; box-sizing: border-box; background: radial-gradient(ellipse at 50% 40%, #2B341B 0%, #141810 78%); }
 
 /* ---------- buttons / inputs ---------- */
 button, .btn {
@@ -297,7 +300,11 @@ select.select-hint { color: var(--faint); }
 /* B26: two clear choices side by side — cancel rides inline, no dedicated row. */
 /* Q132 (2026-10-01): Tanner — "Set home here" centers on the screen; the
    cancel × pins to the right edge of the button row. */
-#home-bar .home-bar-actions { display: flex; align-items: center; justify-content: center; width: 100%; position: relative; }
+/* 2026-11-23: side padding reserves the cancel ×'s ground — the centered
+   jump row (min(320px, 86vw)) used to slide its right edge under the
+   absolutely-pinned × on phone widths; symmetric padding keeps the row
+   centered AND clear. */
+#home-bar .home-bar-actions { display: flex; align-items: center; justify-content: center; width: 100%; position: relative; padding: 0 54px; box-sizing: border-box; }
 #home-bar .home-bar-actions .btn-ghost { position: absolute; right: 0; margin-left: 0; }
 .mflow { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
 .mflow-btn { width: 100%; min-height: 56px; font-size: 17px; border-radius: 14px;
@@ -321,8 +328,13 @@ select.select-hint { color: var(--faint); }
    Go in ONE row at one height, the row the same width as the city field
    under it, both rows aligned. The cancel × wears the standard close
    treatment (the sheet ×: no border, no gold outline). */
-.home-jump-row { display: flex; gap: 8px; width: min(320px, 86vw); flex: 0 0 auto; }
-#home-bar .zip-jump { flex: 1; width: auto; height: var(--tap); box-sizing: border-box; }
+/* 2026-11-23: capped by the actions row's padded content box (100%),
+   not the viewport — at 86vw the row outgrew the reserved × ground and
+   slid under it again. */
+.home-jump-row { display: flex; gap: 8px; width: min(320px, 100%); flex: 0 0 auto; }
+/* min-width: 0 (2026-11-23): a flex input otherwise refuses to shrink
+   below its ~20-character min-content and pushes Go out of the row. */
+#home-bar .zip-jump { flex: 1; width: auto; min-width: 0; height: var(--tap); box-sizing: border-box; }
 #home-bar #btn-home-zip { height: var(--tap); min-height: var(--tap); flex: 0 0 auto; }
 #home-bar #btn-home-cancel { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
 /* ho (Q265): while the home picker is open the map chrome steps back —
