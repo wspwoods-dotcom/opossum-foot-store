@@ -8180,6 +8180,7 @@ function openTagEditor(logId) {
   $('tag-edit-rule').textContent = tagRuleText(tagEntryForSpecies(l.species));
   $('tag-number').value = l.tagNumber || '';
   $('tag-date').value = l.tagDate || '';
+  var delBtn = $('btn-delete-tag'); if (delBtn) delBtn.hidden = !logHasTagData(l, null);
   renderTagEditPhoto();
   IDB.all('photos').then(function (all) {
     if (tagEditLogId !== logId) return;
@@ -8191,6 +8192,14 @@ function openTagEditor(logId) {
 function renderTagEditPhoto() {
   var box = $('tag-photos');
   if (!box) return;
+  /* the Delete button rides whenever a record exists in any form —
+     stored number/date, the saved photo (once it loads), or a photo
+     just picked in this sitting */
+  var delBtn = $('btn-delete-tag');
+  if (delBtn && tagEditLogId) {
+    var l0 = tagLogById(tagEditLogId);
+    delBtn.hidden = !(logHasTagData(l0, null) || (tagEditPhoto && (tagEditPhoto.blob || (tagEditPhoto.existing && !tagEditPhoto.removed))));
+  }
   box.innerHTML = '';
   var rm = $('btn-tag-photo-remove');
   var has = !!(tagEditPhoto && (tagEditPhoto.blob || (tagEditPhoto.existing && !tagEditPhoto.removed)));
@@ -8237,6 +8246,29 @@ function saveTagRecord() {
   renderHistory();
   renderMyTags();
   toast('Tag record saved.');
+}
+/* 2026-11-24 (Tanner): Delete tag record — the tag editor was the one
+   place in the app with no way to remove what it holds, short of
+   hand-clearing every field. The delete strips the number, the date,
+   and the tag photo off the catch, with the app's standard gone-forever
+   warning worded for the record only: THE CATCH ITSELF STAYS in
+   History and on the Scorecard, exactly as it was. */
+function deleteTagRecord() {
+  var l = tagLogById(tagEditLogId);
+  if (!l) { closeSheets(); return; }
+  confirmModal2('Delete this tag record?',
+    'The tag number, date tagged, and tag photo on this catch will be gone forever. The catch itself stays in your History and Scorecard.',
+    'Delete', function () {
+      l.tagNumber = '';
+      l.tagDate = '';
+      if (tagEditPhoto && tagEditPhoto.existing) deleteTagPhotoRec(tagEditPhoto.existing);
+      tagEditPhoto = null; tagEditLogId = null;
+      Store.save();
+      closeSheets();
+      renderHistory();
+      renderMyTags();
+      toast('Tag record deleted.');
+    });
 }
 
 function showSpeciesDetail(name) {
@@ -12389,6 +12421,12 @@ function wireUp() {
   /* Q226: post-catch prompt actions — Update opens the full Edit Set form
      for the set just caught on; Keep just closes. */
   $('btn-pc-update').onclick = function () { var id = postCatchSetId; postCatchSetId = null; if (id) openSetForm(null, id); };
+  /* 2026-11-24 (Tanner): OK under Update this set, same full size. The
+     tag fields write through as they change (pcTagWrite), so nothing is
+     pending in the ordinary run — OK still makes one final write from
+     the fields as they stand, closes the sheet, and says "Saved" out
+     loud, which is the confirmation this sheet was missing. */
+  $('btn-pc-ok').onclick = function () { pcTagWrite(); postCatchSetId = null; closeSheets(); toast('Saved.'); };
   $('btn-voice-lognotes').onclick = function () {
     var ta = $('log-notes');
     Voice.start($('voice-lognotes-preview'), function (t) {
@@ -12444,6 +12482,7 @@ function wireUp() {
     renderTagEditPhoto();
   };
   $('btn-save-tag').onclick = saveTagRecord;
+  $('btn-delete-tag').onclick = deleteTagRecord;
   /* gw scope 3: post-catch sheet tag entry — write-through fields. */
   $('pc-tag-number').onchange = pcTagWrite;
   $('pc-tag-date').onchange = pcTagWrite;
