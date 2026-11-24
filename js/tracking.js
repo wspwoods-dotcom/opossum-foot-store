@@ -282,6 +282,14 @@ var Tracking = (function () {
         if (!st) return;
         var b = st.backgroundLocation;
         if (b === 'always' || b === 'granted') return;
+        /* 2026-11-24 (Tanner, fresh-install field report): 'prompt' means
+           the phone has never been asked. startNativeWatch passes
+           requestPermissions:true, so the iPhone's own prompt is making
+           the ask — this sheet must not pile on as a second ask in the
+           same sitting. The sheet's case is the returning trapper who
+           already holds While Using: no system prompt will fire for him,
+           so the guidance is his only word. */
+        if (b === 'prompt' || b === 'prompt-with-rationale' || st.location === 'prompt' || st.location === 'prompt-with-rationale') return;
         if (b === 'when_in_use' && typeof bg.requestPermissions === 'function') {
           bg.requestPermissions({ permissions: ['backgroundLocation'] }).then(function (st2) {
             var b2 = st2 && st2.backgroundLocation;
@@ -303,7 +311,29 @@ var Tracking = (function () {
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible' && state === 'tracking') { acquireWake(); rearmIfStale(); }
   });
+  /* 2026-11-24 (next build): Google Play's prominent disclosure for
+     background location — exact text approved by Tanner 2026-11-24,
+     sheet in index.html. It stands at the FIRST track start, before
+     any permission request: the native stream's start carries
+     requestPermissions:true and the web watch asks through
+     watchPosition, and both live inside beginTrack, so this gate is
+     genuinely first. Continue marks the disclosure seen for good
+     (Store.data.trackDisclosureSeen — the app's settings storage) and
+     proceeds; Not now (or the ×, or the scrim) starts nothing, asks
+     nothing, and leaves the flag unset, so the next track start offers
+     it again — without it, no permission flow may proceed. One honest
+     text on both platforms; the iOS 'While Using' upgrade sheet
+     (sheet-tracking-permission, checkBgPermission) keeps its own case
+     downstream and is untouched. */
+  function disclosureSeen() {
+    return !!(window.Store && Store.data && Store.data.trackDisclosureSeen);
+  }
   function start() {
+    if (state !== 'idle') return;
+    if (!disclosureSeen()) { openSheet('sheet-track-disclosure'); return; }
+    beginTrack();
+  }
+  function beginTrack() {
     if (state !== 'idle') return;
     if (!navigator.geolocation) { toast('This phone has no GPS available to the app.'); return; }
     endFix();
@@ -364,6 +394,11 @@ var Tracking = (function () {
        trip's note (pending.cov) as the record; it is simply not reported
        here. */
     openSheet('sheet-track-done');
+    /* 2026-11-24: openSheet's own closeSheets pass rescued the pending
+       route and raised the route bar BEFORE this sheet took the screen
+       (see syncRouteBar's stand-down) — sync again now that the sheet
+       is up so the bar steps back behind it. */
+    syncRouteBar();
     renderTrackDiag(pending); /* clears any prior run's diagnostic while this one loads */
     collectTrackDiag(startT, pending);
   }
@@ -1632,7 +1667,17 @@ var Tracking = (function () {
        Show on map raises NO bar — Paperwork's own row already carries
        Fix route and (Q298) Hide on map, so the bar was a second menu
        doing the same jobs. ctx.noBar marks that one drawing. */
-    bar.classList.toggle('show', ((drawn && !(savedCtx && savedCtx.noBar)) || !!pending) && !barDone);
+    /* 2026-11-24 (Tanner, Build 50 field report): while the Track
+       finished sheet is up, the bar stands DOWN — the sheet carries
+       the same decisions (Save to mileage log / Discard this track),
+       and the bar sitting behind it read as a second, stale menu with
+       dead-looking buttons ("Route — not saved yet" over a sheet
+       asking the same question). The gate only decides WHEN the bar
+       shows, never what it shows: the label and buttons below render
+       from the true state either way, and the moment the sheet closes
+       (closeSheets → rescuePending → here) the bar re-renders live. */
+    var doneSheetUp = !!($('sheet-track-done') && $('sheet-track-done').classList.contains('show'));
+    bar.classList.toggle('show', ((drawn && !(savedCtx && savedCtx.noBar)) || !!pending) && !barDone && !doneSheetUp);
     var sv = $('btn-route-save'); if (sv) sv.style.display = pending ? '' : 'none';
     /* ho (2026-11-21, Q262, Tanner): an unsaved route's bar also carries a
        Discard — deleting the track itself, distinct from Hide (display
@@ -1679,10 +1724,17 @@ var Tracking = (function () {
      so the choice is never stranded behind a closed sheet. Draws only
      when nothing is drawn yet, so later sheet closes never yank the map. */
   function rescuePending() {
-    if (!pending) return;
-    if (savedLayer && !savedLayer.getLayers().length && pending.pts && pending.pts.length) {
+    if (pending && savedLayer && !savedLayer.getLayers().length && pending.pts && pending.pts.length) {
       drawSaved(downsample(pending.pts, 400));
     }
+    /* 2026-11-24: the sync runs on EVERY sheet close, not only when a
+       route is pending. This hook is the route bar's way back up after
+       the Track finished sheet stood it down: closeSheets removes the
+       sheet's .show before calling here, so syncRouteBar's gate is off
+       and the bar re-renders from the true state — saved, pending, or
+       nothing. (A route saved from the finish sheet leaves pending
+       null, and its bar state settles HERE: the save's own sync ran
+       while the sheet was still up, with the bar stood down.) */
     syncRouteBar();
   }
   function showLastRoute() {
@@ -1712,7 +1764,13 @@ var Tracking = (function () {
     var s = $('btn-track-stop'); if (s) s.onclick = stop;
     var sv = $('btn-track-save'); if (sv) sv.onclick = saveToMileage;
     var sh = $('btn-track-show'); if (sh) sh.onclick = showLastRoute;
-    var d = $('btn-track-discard'); if (d) d.onclick = discard;
+    /* 2026-11-24 (next build, Tanner field report): this button called
+       discard() bare — the finished track vanished with NO warning at
+       all, while its twin on the route bar (btn-route-discard, below)
+       asked first. Same question, same words, same modal now. */
+    var d = $('btn-track-discard'); if (d) d.onclick = function () {
+      askConfirm('Discard this track?', 'It has not been saved to the mileage log. This cannot be undone.', 'Discard', discard);
+    };
     var h = $('btn-route-hide'); if (h) h.onclick = hideRoute;
     var rs = $('btn-route-save'); if (rs) rs.onclick = function () { saveToMileage(); syncRouteBar(); };
     /* ho (Q262): Discard on the unsaved-route bar — confirms, then the
@@ -1726,11 +1784,40 @@ var Tracking = (function () {
       });
     };
     var tl = $('btn-track-log'); if (tl) tl.onclick = shareTrackLog;
+    /* 2026-11-24 (Tanner, Build 50 field report): the permission sheet's
+       OK button carried data-close — but data-close is wired NOWHERE in
+       this app (sheet dismissal runs on .sheet-x class wiring in app.js
+       and on explicit per-button handlers like this one), so the button
+       was dead on the phone and the sheet could only be escaped via the
+       × or the scrim. Wire it explicitly, like every other sheet action. */
+    var pk = $('btn-tracking-permission-ok'); if (pk) pk.onclick = function () { closeSheets(); };
+    /* 2026-11-24 (next build): the prominent disclosure's two doors.
+       Continue records the showing in the settings storage and walks
+       straight into the track start the disclosure was guarding;
+       Not now only closes — no track starts, no permission is asked. */
+    var dsc = $('btn-track-disclosure-continue'); if (dsc) dsc.onclick = function () {
+      if (window.Store && Store.data) { Store.data.trackDisclosureSeen = true; Store.save(); }
+      closeSheets();
+      beginTrack();
+    };
+    var dsn = $('btn-track-disclosure-notnow'); if (dsn) dsn.onclick = function () { closeSheets(); };
     var rf2 = $('btn-route-fix'); if (rf2) rf2.onclick = function () { if (savedCtx && savedCtx.fix) savedCtx.fix(); };
     var dn2 = $('btn-route-done'); if (dn2) dn2.onclick = function () { barDone = true; syncRouteBar(); };
     var fa = $('btn-fix-apply'); if (fa) fa.onclick = fixApply;
     var fd = $('btn-fix-done'); if (fd) fd.onclick = fixDone;
-    var fc = $('btn-fix-cancel'); if (fc) fc.onclick = fixCancel;
+    /* 2026-11-24 (next build): Cancel here throws the whole edit away
+       (fixCancel) — it asked nothing, only toasted after the fact. When
+       the session holds real work (every drag, cut, join, removal and
+       drawn stretch pushes the undo stack, so a non-empty stack IS the
+       work), ask first through the same modal. An untouched session has
+       nothing to lose and still cancels straight out. */
+    var fc = $('btn-fix-cancel'); if (fc) fc.onclick = function () {
+      if (fixUndoStack && fixUndoStack.length) {
+        askConfirm('Discard this edit?', 'The changes you made to this route have not been saved. This cannot be undone.', 'Discard', fixCancel);
+        return;
+      }
+      fixCancel();
+    };
     var fdw = $('btn-fix-draw'); if (fdw) fdw.onclick = fixDrawEnter;
     var fu = $('btn-fix-undo'); if (fu) fu.onclick = function () { if (fixDrawMode) fixDrawUndo(); else fixUndoStep(); };
     var fr = $('btn-fix-remove'); if (fr) fr.onclick = function () { fixRemovePoint(); };
@@ -1740,7 +1827,16 @@ var Tracking = (function () {
     var fbk = $('btn-fix-back'); if (fbk) fbk.onclick = fixDrawExit;
     var dap = $('btn-draw-apply'); if (dap) dap.onclick = drawApply;
     var du = $('btn-draw-undo'); if (du) du.onclick = drawUndo;
-    var dc = $('btn-draw-cancel'); if (dc) dc.onclick = drawCancel;
+    /* 2026-11-24 (next build): same silence as the fix editor — Cancel
+       threw the drawn points away with no ask. Points on the ground are
+       work; ask first. An empty canvas cancels straight out. */
+    var dc = $('btn-draw-cancel'); if (dc) dc.onclick = function () {
+      if (drawPts && drawPts.length) {
+        askConfirm('Discard this route?', 'The route you drew has not been saved. This cannot be undone.', 'Discard', drawCancel);
+        return;
+      }
+      drawCancel();
+    };
     var dsv = $('btn-draw-save'); if (dsv) dsv.onclick = drawSaveTap;
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
