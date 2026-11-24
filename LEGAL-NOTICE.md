@@ -10,7 +10,7 @@ Copyright © 2026 Opossum Foot LLC. All rights reserved.
 
 The app is provided as-is. It was built to be solid, but no software is
 perfect — Opossum Foot LLC isn't responsible for anything that goes wrong
-because of a glitch. Back up your data in Settings — the full JSON backup is
+because of a glitch. Back up your data on the Data tab — the full JSON backup is
 the one that restores everything; the CSV exports are your spreadsheet copies.
 
 ## Seasons are reminders, not law
@@ -74,3 +74,5 @@ in this app ever conflicts with an official source, the official source governs.
 ## The fine print, plainly
 
 This isn't legal advice. By using the app, you agree to use it legally.
+
+Opossum Foot LLC · Effective November 24, 2026 · Support: Opossumfootapp@gmail.com
