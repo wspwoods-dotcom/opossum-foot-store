@@ -1546,12 +1546,17 @@ function rememberAttractants(s) {
    stays as the fallback so the info page is always one tap away. */
 /* Q238 (2026-11-07): one row per sponsor PRODUCT, not one per sponsor.
    The row fills that product; the eye/logo opens the sponsor bio. */
-function sponsorSuggestRowHtml(sp, productName) {
+function sponsorSuggestRowHtml(sp, productName, fillName) {
   var mark = sp.badge
     ? '<img class="sponsor-logo" src="' + esc(sp.badge) + '" alt="' + esc(sp.name) + ' logo">'
     : '&#128065;';
+  /* fillName: the bag-entry form (a saved entry that IS this product) —
+     the row shows and fills the entry exactly as saved, which may carry
+     the sponsor's name in front of the product name. Same box either
+     way: one markup for every sponsored row in the list. */
+  var shown = (fillName != null) ? fillName : productName;
   return '<div class="suggest-sponsor">' +
-    '<button type="button" class="suggest-fill" data-v="' + esc(productName) + '"><span class="suggest-name">' + esc(productName) + '</span> <span class="pill">Sponsored</span></button>' +
+    '<button type="button" class="suggest-fill" data-v="' + esc(shown) + '"><span class="suggest-name">' + esc(shown) + '</span> <span class="pill">Sponsored</span></button>' +
     '<button type="button" class="sponsor-eye" data-sp="' + esc(sp.id) + '" aria-label="About ' + esc(sp.name) + '">' + mark + '</button>' +
     '</div>';
 }
@@ -1637,16 +1642,39 @@ function comboReveal(input, box) {
       var vv = window.visualViewport;
       var visH = vv ? vv.height : window.innerHeight;
       var ir = input.getBoundingClientRect();
+      /* (2026-11-24, Tanner's field report on Build 56 — the reveal
+         audit): these passes had NO top guard. A mid-form field the
+         phone had already panned to the very top of the screen — under
+         the status bar, the sheet's own head scrolled out of sight —
+         reads as "already visible" to the checks below (top >= 0) and
+         was left pinned there (his urine and audio screenshots; the
+         bait field, near the form's top, never needs the pan and
+         rested correctly). The guard: a field must rest BELOW the head
+         of the sheet it sits in — the resting place the form's top
+         fields naturally occupy — or, outside a sheet, below its
+         scroller's top edge. Head and field are measured in the same
+         pass, in the same coordinates, so the rule holds however the
+         phone reports the pan. The scroll target is floored at the
+         guard and both no-op checks refuse a landing above it, so a
+         pinned field is actively scrolled back down under the head. */
+      var guardTop = 0;
+      var sheetEl = input.closest ? input.closest('.sheet') : null;
+      if (sheetEl) {
+        var headEl = sheetEl.querySelector('.sheet-head');
+        if (headEl) guardTop = headEl.getBoundingClientRect().bottom + 6;
+      }
+      if (!guardTop && sc) guardTop = sc.getBoundingClientRect().top + 6;
       var target = Math.max(10, visH * 0.30);
+      if (guardTop > target) target = guardTop;
       if (shown) {
         var br = box.getBoundingClientRect();
         var listWanted = Math.min(br.height, 230);
-        if (ir.top >= 0 && ir.top <= target + 4 && ir.bottom + listWanted <= visH + 4) return;
-      } else if (ir.top >= 0 && ir.bottom <= visH + 4) {
-        return; /* no list coming, and the field already sits visible */
+        if (ir.top >= guardTop - 1 && ir.top <= target + 4 && ir.bottom + listWanted <= visH + 4) return;
+      } else if (ir.top >= guardTop - 1 && ir.top >= 0 && ir.bottom <= visH + 4) {
+        return; /* no list coming, and the field already sits visible below the guard */
       }
       if (sc) sc.scrollTop += ir.top - target;
-      else if (input.scrollIntoView) input.scrollIntoView(true);
+      else if (input.scrollIntoView) input.scrollIntoView({ block: 'nearest' });
     }, delay);
   });
 }
@@ -1832,11 +1860,19 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
          in the sponsor list below. */
       var m = sponsorEntryMatch(key, v);
       if (m) {
-        var mark = m.sp.badge
-          ? '<img class="sponsor-logo" src="' + esc(m.sp.badge) + '" alt="' + esc(m.sp.name) + ' logo">'
-          : '&#128065;';
-        return '<div class="suggest-row"><button type="button" class="suggest-item" data-v="' + esc(v) + '"><span class="suggest-name">' + esc(v) + '</span> <span class="pill">Sponsored</span></button>' +
-          '<button type="button" class="sponsor-eye" data-sp="' + esc(m.sp.id) + '" aria-label="About ' + esc(m.sp.name) + '">' + mark + '</button>' + del + '</div>';
+        /* (2026-11-24, Tanner's field report on Build 56): a bag entry
+           that IS a sponsor product wears the sponsor row's own layout —
+           the same .suggest-sponsor box as the catalog row for the same
+           product in this same list. The hand-rolled row it replaces put
+           the border on the inner button alone, so the box came out a
+           delete-× narrower than its neighbors, the pill hugged the
+           name, and the logo eye hung outside the border half-clipped
+           (his "Last Stop" screenshot: the two rows side by side,
+           visibly different). The Q79 × is not carried on sponsor rows:
+           it is a third flex item and its width is exactly what pushed
+           this row out of true; the product itself stays one tap away
+           in the catalog rows below. Non-sponsor rows keep their ×. */
+        return sponsorSuggestRowHtml(m.sp, m.name, v);
       }
       return '<div class="suggest-row"><button type="button" class="suggest-item" data-v="' + esc(v) + '">' + esc(v) + '</button>' + del + '</div>';
     }).join('') + sps.map(function (r) { return sponsorSuggestRowHtml(r.sp, r.name); }).join('');
@@ -5853,7 +5889,7 @@ function openFullPhoto(blob) {
 }
 
 /* --- voice memos via MediaRecorder, stored as blobs in IndexedDB --- */
-var MEMO_IDLE_HTML = '<img class="bi" src="assets/icons/mic.png" alt="">Record memo';
+var MEMO_IDLE_HTML = 'Record memo';
 var Memo = {
   recorder: null, chunks: [], recording: false, targetSetId: null,
   pickMime: function () {
@@ -9220,10 +9256,10 @@ function openLandownerForm(id) {
     '<label class="field" for="lo-boundary-note">Boundary — written note</label>' +
     '<textarea id="lo-boundary-note" rows="2" placeholder="North of the creek to the east fence…">' + esc(lo.boundaryNote) + '</textarea>' +
     '<p class="dim" style="margin:8px 0 4px">…or upload a map photo:</p>' +
-    '<button class="btn-secondary" id="lo-boundary-btn" type="button"><img class="bi" src="assets/icons/camera.png" alt="">Upload boundary map</button>' +
+    '<button class="btn-secondary" id="lo-boundary-btn" type="button">Upload boundary map</button>' +
     '<div class="lic-grid" id="lo-boundary-grid"></div>' +
     '<label class="field">Permission slips</label>' +
-    '<button class="btn-secondary" id="lo-slip-btn" type="button"><img class="bi" src="assets/icons/camera.png" alt="">Add permission slip photo</button>' +
+    '<button class="btn-secondary" id="lo-slip-btn" type="button">Add permission slip photo</button>' +
     '<div class="lic-grid" id="lo-slip-grid"></div>' +
     '<div class="btn-row" style="margin-top:14px"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
     '<button class="btn-primary" id="lo-save" type="button">Save landowner</button></div>' +
@@ -12254,7 +12290,7 @@ function showTripModal(lineId, tripId) {
     if (isIOSPWA()) {
       tripVoiceTip = '<p class="dim" id="voice-tripnotes-tip" style="margin:8px 0 0">Tap the <svg viewBox="0 0 24 24" width="12" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="vertical-align:-3px"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 10.5v1a6.5 6.5 0 0 0 13 0v-1"/><path d="M12 18v3"/></svg> key on your keyboard to dictate a note.</p>';
     } else {
-      tripVoiceBtn = '<button class="btn-small btn-secondary" id="m-voice-tripnotes" type="button"><img class="bi" src="assets/icons/mic.png" alt="">Voice → notes</button>';
+      tripVoiceBtn = '<button class="btn-small btn-secondary" id="m-voice-tripnotes" type="button">Voice → notes</button>';
     }
   }
   showModal(
@@ -12283,7 +12319,7 @@ function showTripModal(lineId, tripId) {
     /* hm (Q195): the notes row — Voice → notes + Add photo, the same
        pair the set and log notes sections carry. */
     '<div class="btn-row" style="margin-top:8px">' + tripVoiceBtn +
-    '<button class="btn-small btn-secondary" id="m-note-photo" type="button"><img class="bi" src="assets/icons/camera.png" alt="">Add a photo</button></div>' +
+    '<button class="btn-small btn-secondary" id="m-note-photo" type="button">Add a photo</button></div>' +
     tripVoiceTip +
     '<div class="voice-preview" id="voice-tripnotes-preview"></div>' +
     '<div class="photo-strip" id="m-trip-note-photos" style="margin-top:8px"></div>' +
