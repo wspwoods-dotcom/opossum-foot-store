@@ -305,6 +305,16 @@
         </div>
         </div>
       </div>
+      <!-- 2026-11-24 (Tanner): the data-transfer quick reference, sitting
+           between the backup card above and the import card below —
+           the whole move in three steps, beside the controls it names.
+           Text is the draft he approved 2026-11-22 / 2026-11-24. -->
+      <div class="card">
+        <p style="margin-top:0"><strong>Moving to a new phone or a fresh install?</strong></p>
+        <p class="imp-cap" style="margin-top:0">1. Under <em>Keep your data safe</em> above, tap <strong>Back up all data (JSON)</strong>, then <strong>Export photos &amp; files (ZIP)</strong>. You need both — the backup holds your lines, sets and logs; the ZIP holds your pictures and voice memos.</p>
+        <p class="imp-cap">2. In the new app, go to <em>Move data in or out</em> below → <strong>Import data</strong>: pick the JSON first, then import again and pick the ZIP.</p>
+        <p class="imp-cap" style="margin-bottom:0">3. Importing the same file twice won't double anything.</p>
+      </div>
       <div class="card setsec" id="setsec-data-move">
         <button type="button" class="setsec-head" id="setsec-data-move-head" data-sec="setsec-data-move" aria-expanded="false"><span>Move data in or out</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-data-move-body" hidden>
@@ -635,9 +645,11 @@
     <div class="sheet-body">
       <p id="track-done-stats" style="font-size:17px"></p>
       <p class="dim">Saving files this as a trip in Route and Mileage for the active line, with the route kept on the record.</p>
+      <p class="dim" id="track-done-diag"></p>
       <div class="sheet-actions" style="flex-direction:column;align-items:stretch;gap:10px">
         <button class="btn-secondary" id="btn-track-save" type="button">Save to mileage log</button>
         <button class="btn-secondary" id="btn-track-show" type="button">Show the route on the map</button>
+        <button class="btn-secondary" id="btn-track-log" type="button" style="display:none">Share track log</button>
         <button class="btn-secondary" id="btn-track-discard" type="button">Discard this track</button>
       </div>
     </div>
@@ -1055,6 +1067,10 @@
     <input type="file" id="tag-photo-input" class="hidden-file" accept="image/*">
     <div class="sheet-actions">
       <button class="btn-primary" id="btn-save-tag" type="button">Save tag record</button>
+      <!-- 2026-11-24 (Tanner): a tag record gets a delete like every other
+           function in the app. Shown only when a record exists; the catch
+           itself is never touched — number, date and tag photo only. -->
+      <button class="btn-danger" id="btn-delete-tag" type="button" hidden>Delete tag record</button>
     </div>
   </div>
 </div>
@@ -1088,6 +1104,11 @@
     </div>
     <div class="sheet-actions">
       <button class="btn-primary" id="btn-pc-update" type="button">Update this set</button>
+      <!-- 2026-11-24 (Tanner): an OK of the same full size directly under
+           Update this set. The tag fields above write through as they
+           change, but nothing on this sheet SAID the entry was kept —
+           OK commits, closes, and confirms with a "Saved" toast. -->
+      <button class="btn-secondary" id="btn-pc-ok" type="button">OK</button>
     </div>
     <p class="dim">Changes apply to future catches only.</p>
   </div>
