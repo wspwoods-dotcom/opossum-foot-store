@@ -218,7 +218,13 @@ var Tracking = (function () {
         backgroundMessage: 'Recording your route while you run your line.',
         requestPermissions: true,
         stale: false,
-        distanceFilter: 0
+        distanceFilter: 0,
+        /* 2026-11-24 (next build): the plugin's own location log — every
+           fix the phone produced, kept on the device whether the recorder
+           accepted it or not. Read back at Stop (collectTrackDiag) so a
+           gap in the route can name its cause: fixes that arrived too
+           coarse to use, or a true silence where the phone sent nothing. */
+        locationLog: true
       }, function (loc, err) {
         if (err) { engageFallback(); return; }
         if (loc) onNativePos(loc);
@@ -358,8 +364,65 @@ var Tracking = (function () {
        trip's note (pending.cov) as the record; it is simply not reported
        here. */
     openSheet('sheet-track-done');
+    renderTrackDiag(pending); /* clears any prior run's diagnostic while this one loads */
+    collectTrackDiag(startT, pending);
   }
   function discard() { pending = null; if (layer) layer.clearLayers(); endFix(); clearSaved(); closeSheets(); }
+  /* 2026-11-24 (next build): the track diagnostic. The plugin's location
+     log holds EVERY fix the phone produced during the run — including the
+     ones this recorder dropped (too coarse) and the stretches where the
+     phone sent nothing at all. Read at Stop and held on pending (memory
+     only; never saved with the trip), it lets a gapped route name its own
+     cause, and the finish sheet can share the raw log as a text file. */
+  function collectTrackDiag(runStart, pend) {
+    var bg = nativeBG();
+    if (!bg || typeof bg.getLocationLog !== 'function') return;
+    var stopAt = Date.now();
+    bg.getLocationLog({ limit: 10000 }).then(function (res) {
+      if (pending !== pend) return; /* a newer run owns the sheet now */
+      var raw = (res && res.entries) || [];
+      var entries = [];
+      raw.forEach(function (e) {
+        var t = (typeof e.time === 'number') ? e.time : (typeof e.timestamp === 'number' ? e.timestamp : null);
+        if (t === null || t < runStart - 5000 || t > stopAt + 5000) return;
+        entries.push({ t: t, lat: e.latitude, lng: e.longitude, acc: (typeof e.accuracy === 'number' ? e.accuracy : null), spd: (typeof e.speed === 'number' ? e.speed : null) });
+      });
+      if (!entries.length) return;
+      var longest = 0;
+      for (var i = 1; i < entries.length; i++) { var s = (entries[i].t - entries[i - 1].t) / 1000; if (s > longest) longest = s; }
+      var gaps = [];
+      var rp = pend.pts || [];
+      for (var j = 1; j < rp.length; j++) {
+        var dt = (rp[j].t - rp[j - 1].t) / 1000;
+        if (dt * 1000 > GAP_MS) {
+          var inside = entries.filter(function (e) { return e.t > rp[j - 1].t && e.t < rp[j].t; });
+          var best = null;
+          inside.forEach(function (e) { if (e.acc !== null && (best === null || e.acc < best)) best = e.acc; });
+          gaps.push({ secs: Math.round(dt), fixes: inside.length, bestAcc: best });
+        }
+      }
+      pend.diag = { fixes: entries.length, longestSilenceS: Math.round(longest), gaps: gaps, entries: entries };
+      renderTrackDiag(pend);
+    }).catch(function () { /* the log is a diagnostic, never a blocker */ });
+  }
+  function renderTrackDiag(pend) {
+    var el = $('track-done-diag'), btn = $('btn-track-log');
+    if (!pend || !pend.diag) { if (el) el.textContent = ''; if (btn) btn.style.display = 'none'; return; }
+    var d = pend.diag, bits = ['Phone produced ' + d.fixes + ' fixes this run'];
+    if (d.longestSilenceS > 40) bits.push('longest silence ' + fmtElapsed(d.longestSilenceS * 1000));
+    d.gaps.forEach(function (g) {
+      if (!g.fixes) bits.push('one gap of ' + g.secs + 's had no fixes at all — the phone sent nothing');
+      else bits.push('one gap of ' + g.secs + 's had ' + g.fixes + ' fix' + (g.fixes === 1 ? '' : 'es') + ' arrive, best accuracy ' + (g.bestAcc !== null ? Math.round(g.bestAcc) + ' m' : 'unknown') + ' — too coarse to use');
+    });
+    if (el) el.textContent = bits.join('. ') + '.';
+    if (btn) btn.style.display = '';
+  }
+  function shareTrackLog() {
+    if (!pending || !pending.diag) return;
+    var d = pending.diag, lines = ['Opossum Foot track log — ' + new Date().toISOString(), 'Phone fixes: ' + d.fixes + '; longest silence: ' + d.longestSilenceS + 's; recorder gaps: ' + d.gaps.length, 'time,latitude,longitude,accuracy_m,speed_mps'];
+    d.entries.forEach(function (e) { lines.push(new Date(e.t).toISOString() + ',' + e.lat + ',' + e.lng + ',' + (e.acc === null ? '' : Math.round(e.acc)) + ',' + (e.spd === null ? '' : e.spd)); });
+    shareJsonFile(new Blob([lines.join('\n')], { type: 'text/plain' }), 'opossum-foot-track-log.txt', 'Track log');
+  }
   function downsampleSeg(arr, max) {
     if (arr.length <= max) return arr.map(function (p) { return [Math.round(p.lat * 1e5) / 1e5, Math.round(p.lng * 1e5) / 1e5]; });
     var step = arr.length / max, out = [];
@@ -394,6 +457,14 @@ var Tracking = (function () {
     Store.save();
     pending = null;
     if (layer) layer.clearLayers();
+    /* 2026-11-24 (Tanner, build 40 field find): this save never told the
+       route bar to stand down — saving from the finish sheet left the bar
+       up still reading "Route — not saved yet" with live-looking Save and
+       Discard buttons, contradicting the toast. (Both buttons were in
+       fact disarmed — every handler checks pending first — but the bar
+       LOOKED armed.) Any save now re-syncs the bar, so the label and
+       buttons always match reality the moment a save lands. */
+    syncRouteBar();
     closeSheets();
     toast('Route filed in the mileage log.');
   }
@@ -1579,13 +1650,26 @@ var Tracking = (function () {
        misunderstood note and he changed his mind besides. The route
        bar's own Hide route (Q200) remains the way a route comes off. */
   }
+  /* 2026-11-24 (next build): confirmations ride the app's own modal
+     (confirmModal2, app.js) instead of window.confirm — on the store
+     build's iOS shell, a native confirm can be swallowed whole when
+     another presentation is in flight (the 2026-11-23 dead Discard tap),
+     while the app's own sheets always land. Falls back to the native
+     confirm only if the modal is somehow unavailable. */
+  function askConfirm(title, body, okLabel, onOk) {
+    if (typeof confirmModal2 === 'function') { confirmModal2(title, body, okLabel, onOk); return; }
+    if (window.confirm(title + ' ' + body)) onOk();
+  }
   /* Q201: Hide while a route is still unsaved asks first — hiding is the
      one tap that could throw the route away. */
   function hideRoute() {
     if (pending) {
-      if (!window.confirm('This route has not been saved to the mileage log. Hide it without saving?')) return;
-      pending = null;
-      if (layer) layer.clearLayers();
+      askConfirm('Hide without saving?', 'This route has not been saved to the mileage log. Hiding it throws the track away.', 'Hide', function () {
+        pending = null;
+        if (layer) layer.clearLayers();
+        clearSaved();
+      });
+      return;
     }
     clearSaved();
   }
@@ -1635,11 +1719,13 @@ var Tracking = (function () {
        track itself is gone (Hide, by contrast, only clears the drawing). */
     var rd = $('btn-route-discard'); if (rd) rd.onclick = function () {
       if (!pending) return;
-      if (!window.confirm('Discard this track? It has not been saved to the mileage log.')) return;
-      pending = null;
-      if (layer) layer.clearLayers();
-      clearSaved();
+      askConfirm('Discard this track?', 'It has not been saved to the mileage log. This cannot be undone.', 'Discard', function () {
+        pending = null;
+        if (layer) layer.clearLayers();
+        clearSaved();
+      });
     };
+    var tl = $('btn-track-log'); if (tl) tl.onclick = shareTrackLog;
     var rf2 = $('btn-route-fix'); if (rf2) rf2.onclick = function () { if (savedCtx && savedCtx.fix) savedCtx.fix(); };
     var dn2 = $('btn-route-done'); if (dn2) dn2.onclick = function () { barDone = true; syncRouteBar(); };
     var fa = $('btn-fix-apply'); if (fa) fa.onclick = fixApply;
