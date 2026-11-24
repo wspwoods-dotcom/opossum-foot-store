@@ -592,7 +592,7 @@
       <textarea id="mk-note" rows="3" placeholder="What you saw, how fresh, which way it was headed…"></textarea>
       <label class="field">Photo (optional)</label>
       <div class="mk-form-photos" id="mk-form-photos"></div>
-      <button type="button" class="btn-secondary" id="btn-mk-photo">📷 Add a photo</button>
+      <button type="button" class="btn-secondary" id="btn-mk-photo">Add a photo</button>
       <input type="file" id="mk-photo-input" class="hidden-file" accept="image/*" multiple>
       <div class="sheet-actions">
         <button class="btn-primary" id="btn-mk-save" type="button">Save marker</button>
@@ -837,7 +837,7 @@
       <input type="text" id="sf-missing-detail" placeholder="Officer, citation #, ..." autocomplete="off">
       <div class="suggest" id="sf-missing-detail-suggest"></div>
       <div class="photo-strip" id="sf-missing-photos" style="margin-top:8px"></div>
-      <button type="button" class="btn-small btn-secondary" id="btn-sf-missing-photo" style="margin-top:6px"><img class="bi" src="assets/icons/camera.png" alt="">Add citation photo</button>
+      <button type="button" class="btn-small btn-secondary" id="btn-sf-missing-photo" style="margin-top:6px">Add citation photo</button>
       <input type="file" id="sf-missing-photo-input" class="hidden-file" accept="image/*">
     </div>
     </div>
@@ -854,7 +854,7 @@
     <textarea id="sf-notes" placeholder="Write a note — Add note files it with today's date…"></textarea>
     <div class="btn-row" style="margin-top:8px">
       <button class="btn-small btn-secondary" id="btn-add-note" type="button">＋ Add note</button>
-      <button class="btn-small btn-secondary" id="btn-voice-setnotes" type="button"><img class="bi" src="assets/icons/mic.png" alt="">Voice → notes</button>
+      <button class="btn-small btn-secondary" id="btn-voice-setnotes" type="button">Voice → notes</button>
     </div>
     <p class="dim" id="voice-setnotes-tip" style="display:none;margin:8px 0 0">Tap the <svg viewBox="0 0 24 24" width="12" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="vertical-align:-3px"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 10.5v1a6.5 6.5 0 0 0 13 0v-1"/><path d="M12 18v3"/></svg> key on your keyboard to dictate a note.</p>
     <div class="voice-preview" id="voice-setnotes-preview"></div>
@@ -863,7 +863,7 @@
     <div id="setform-memos" hidden>
     <label class="field" for="btn-se-memo" id="se-memos-label">Voice memos</label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-se-memo" type="button"><img class="bi" src="assets/icons/mic.png" alt="">Record memo</button>
+      <button class="btn-small btn-secondary" id="btn-se-memo" type="button">Record memo</button>
     </div>
     <!-- Q179 (2026-10-08): Tanner — memos list below the Record button -->
     <div id="se-memos" style="margin-top:8px"></div>
@@ -871,7 +871,7 @@
     <div id="setform-photos">
     <label class="field">Photos</label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-sf-photo" type="button"><img class="bi" src="assets/icons/camera.png" alt="">Add a photo</button>
+      <button class="btn-small btn-secondary" id="btn-sf-photo" type="button">Add a photo</button>
     </div>
     <!-- Q179: photos below the Take a photo button -->
     <div class="photo-strip" id="sf-photos" style="margin-top:8px"></div>
@@ -1019,18 +1019,18 @@
     <label class="field" for="log-notes">Notes</label>
     <textarea id="log-notes" placeholder="Optional…"></textarea>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-voice-lognotes" type="button"><img class="bi" src="assets/icons/mic.png" alt="">Voice → notes</button>
+      <button class="btn-small btn-secondary" id="btn-voice-lognotes" type="button">Voice → notes</button>
     </div>
     <p class="dim" id="voice-lognotes-tip" style="display:none;margin:8px 0 0">Tap the <svg viewBox="0 0 24 24" width="12" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="vertical-align:-3px"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 10.5v1a6.5 6.5 0 0 0 13 0v-1"/><path d="M12 18v3"/></svg> key on your keyboard to dictate a note.</p>
     <div class="voice-preview" id="voice-lognotes-preview"></div>
     <!-- Q177 (2026-10-08): Tanner — small field labels, consistent with Edit Set -->
     <label class="field" for="btn-log-memo" style="margin-top:12px">Voice memos</label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-log-memo" type="button"><img class="bi" src="assets/icons/mic.png" alt="">Record memo</button>
+      <button class="btn-small btn-secondary" id="btn-log-memo" type="button">Record memo</button>
     </div>
     <label class="field" for="btn-log-photo" style="margin-top:12px">Photos</label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-log-photo" type="button"><img class="bi" src="assets/icons/camera.png" alt="">Add a photo</button>
+      <button class="btn-small btn-secondary" id="btn-log-photo" type="button">Add a photo</button>
     </div>
     <!-- Q179: photos below the Add photo button -->
     <div class="photo-strip" id="log-photos" style="margin-top:8px"></div>
@@ -1050,7 +1050,7 @@
     <input type="date" id="log-tag-date">
     <label class="field" for="btn-log-tagphoto" style="margin-top:12px">Tag photo <span class="dim">(optional)</span></label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-log-tagphoto" type="button"><img class="bi" src="assets/icons/camera.png" alt="">Add tag photo</button>
+      <button class="btn-small btn-secondary" id="btn-log-tagphoto" type="button">Add tag photo</button>
     </div>
     <div class="photo-strip" id="log-tag-photos" style="margin-top:8px"></div>
     <input type="file" id="log-tag-photo-input" class="hidden-file" accept="image/*">
@@ -1079,7 +1079,7 @@
     <input type="date" id="tag-date">
     <label class="field" for="btn-tag-photo" style="margin-top:12px">Tag photo <span class="dim">(optional)</span></label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-tag-photo" type="button"><img class="bi" src="assets/icons/camera.png" alt="">Add tag photo</button>
+      <button class="btn-small btn-secondary" id="btn-tag-photo" type="button">Add tag photo</button>
       <button class="btn-small btn-danger" id="btn-tag-photo-remove" type="button" hidden>Remove photo</button>
     </div>
     <div class="photo-strip" id="tag-photos" style="margin-top:8px"></div>
@@ -1115,7 +1115,7 @@
       <input type="date" id="pc-tag-date">
       <label class="field" for="btn-pc-tagphoto" style="margin-top:12px">Tag photo <span class="dim">(optional)</span></label>
       <div class="btn-row" style="margin-top:8px">
-        <button class="btn-small btn-secondary" id="btn-pc-tagphoto" type="button"><img class="bi" src="assets/icons/camera.png" alt="">Add tag photo</button>
+        <button class="btn-small btn-secondary" id="btn-pc-tagphoto" type="button">Add tag photo</button>
         <button class="btn-small btn-danger" id="btn-pc-tagphoto-remove" type="button" hidden>Remove photo</button>
       </div>
       <div class="photo-strip" id="pc-tag-photos" style="margin-top:8px"></div>
