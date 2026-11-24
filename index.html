@@ -202,6 +202,7 @@
     <div class="pane-head"><h2 id="seasons-title">Season Reminders</h2><p id="seasons-sub"></p></div>
     <div class="scroll">
       <div class="warnbox" id="seasons-disclaimer"></div>
+      <button type="button" class="btn-secondary" id="seasons-legal" style="margin:12px 0">Legal notices</button>
       <a id="seasons-warden" class="regs-link" target="_blank" rel="noopener" hidden></a>
       <a id="seasons-regs" class="regs-link" target="_blank" rel="noopener" hidden></a>
       <div id="seasons-rules" hidden></div>
@@ -294,6 +295,16 @@
            tab's sections, starting collapsed like their siblings. Every
            control inside is unchanged; the setsec wiring picks the new
            heads up with the rest. -->
+      <!-- 2026-11-24 (Tanner): the data-transfer quick reference, at the
+           top of the Data pane (Tanner's ruling 2026-11-24) — the whole
+           move in three steps, above the controls it names.
+           Text is the draft he approved 2026-11-22 / 2026-11-24. -->
+      <div class="card">
+        <p style="margin-top:0"><strong>Moving to a new phone or a fresh install?</strong></p>
+        <p class="imp-cap" style="margin-top:0">1. Under <em>Keep your data safe</em> below, tap <strong>Back up all data (JSON)</strong>, then <strong>Export photos &amp; files (ZIP)</strong>. You need both — the backup holds your lines, sets and logs; the ZIP holds your pictures and voice memos.</p>
+        <p class="imp-cap">2. In the new app, go to <em>Move data in or out</em> below → <strong>Import data</strong>: pick the JSON first, then import again and pick the ZIP.</p>
+        <p class="imp-cap" style="margin-bottom:0">3. Importing the same file twice won't double anything.</p>
+      </div>
       <div class="card setsec" id="setsec-data-safe">
         <button type="button" class="setsec-head" id="setsec-data-safe-head" data-sec="setsec-data-safe" aria-expanded="false"><span>Keep your data safe</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-data-safe-body" hidden>
@@ -304,16 +315,6 @@
           <p class="imp-cap">Every photo and voice memo from <strong>every line</strong>, in one file. The backup above holds your data but not your pictures — this file is their backup.</p>
         </div>
         </div>
-      </div>
-      <!-- 2026-11-24 (Tanner): the data-transfer quick reference, sitting
-           between the backup card above and the import card below —
-           the whole move in three steps, beside the controls it names.
-           Text is the draft he approved 2026-11-22 / 2026-11-24. -->
-      <div class="card">
-        <p style="margin-top:0"><strong>Moving to a new phone or a fresh install?</strong></p>
-        <p class="imp-cap" style="margin-top:0">1. Under <em>Keep your data safe</em> above, tap <strong>Back up all data (JSON)</strong>, then <strong>Export photos &amp; files (ZIP)</strong>. You need both — the backup holds your lines, sets and logs; the ZIP holds your pictures and voice memos.</p>
-        <p class="imp-cap">2. In the new app, go to <em>Move data in or out</em> below → <strong>Import data</strong>: pick the JSON first, then import again and pick the ZIP.</p>
-        <p class="imp-cap" style="margin-bottom:0">3. Importing the same file twice won't double anything.</p>
       </div>
       <div class="card setsec" id="setsec-data-move">
         <button type="button" class="setsec-head" id="setsec-data-move-head" data-sec="setsec-data-move" aria-expanded="false"><span>Move data in or out</span><span class="setsec-chev" aria-hidden="true">›</span></button>
@@ -471,8 +472,8 @@
         <button type="button" class="setsec-head" id="setsec-privacy-head" data-sec="setsec-privacy" aria-expanded="false"><span>Your Privacy</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-privacy-body" hidden>
         <p><strong>Your spots never leave your phone.</strong></p>
-        <p class="dim">Opossum Foot has no account, no login, and no cloud. Every set, catch, photo, and voice memo is stored only in this phone's browser storage. Nothing you enter is stored anywhere else — the only network traffic is map tiles, the app's own files, weather lookups (only if you turn weather on), and live voice transcription (only when you tap the microphone and have a connection).</p>
-        <p class="dim"><strong>The honest catch:</strong> because there's no cloud backup, a lost phone, a wiped phone, or clearing this browser's data can destroy your records. Export a CSV backup regularly — that's your safety net.</p>
+        <p class="dim">Opossum Foot has no account, no login, and no cloud. Every set, catch, photo, and voice memo is stored only on this phone. Nothing you enter is stored anywhere else — the only network traffic is map tiles, the app's own files, weather lookups (only if you turn weather on), and live voice transcription (only when you tap the microphone and have a connection).</p>
+        <p class="dim"><strong>The honest catch:</strong> because there's no cloud backup, a lost phone, a wiped phone, or clearing the app's data can destroy your records. Back up with <strong>Back up all data (JSON)</strong> on the Data tab — the full JSON backup is the backup that restores your records; CSV exports are spreadsheet copies.</p>
         <label class="checkline"><input type="checkbox" id="settings-showcoords"> Show GPS coordinates</label>
         <p class="dim" style="margin:-6px 0 10px">Shows the county and exact coordinates on a set's details and on the weather tab. Off keeps them hidden, so screenshots are safe to share.</p>
         <label class="checkline"><input type="checkbox" id="settings-exportcoords"> Include GPS coordinates in reports</label>
@@ -504,6 +505,8 @@
         <div class="sheet-actions">
           <button class="btn-secondary" id="btn-guide" type="button">Trapper's guide</button>
           <button class="btn-secondary" id="btn-legal" type="button">Legal notices</button>
+          <a class="btn btn-secondary" href="https://opossumfoot.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+          <a class="btn btn-secondary" href="https://opossumfoot.com/terms" target="_blank" rel="noopener">Terms of Service</a>
         </div>
         </div>
       </div>
@@ -635,10 +638,26 @@
       3. Tap Location, then tap Always.</p>
       <p class="dim">Your records still stay on your phone. &lsquo;Always&rsquo; only lets the app keep recording while the screen is off.</p>
       <div class="sheet-actions" style="flex-direction:column;align-items:stretch;gap:10px">
-        <button class="btn-secondary" data-close type="button">Got it</button>
+        <button class="btn-secondary" id="btn-tracking-permission-ok" data-close type="button">OK</button>
       </div>
     </div>
   </div>
+  <!-- 2026-11-24 (next build): Google Play's prominent disclosure for
+       background location — exact text approved by Tanner 2026-11-24.
+       Shown at the first track start, before any location permission
+       request (tracking.js start() gates on it). -->
+  <div id="sheet-track-disclosure" class="sheet">
+    <div class="sheet-grab"></div>
+    <div class="sheet-head"><h2>Route recording &amp; your location</h2><button class="sheet-x" data-close type="button">×</button></div>
+    <div class="sheet-body">
+      <p>Opossum Foot collects location data to enable route recording even when the app is closed or not in use. A recording runs only while a track you started is on, and it stops when you stop the track. Your recorded routes stay on your phone — Opossum Foot has no server and receives none of them.</p>
+      <div class="sheet-actions" style="flex-direction:column;align-items:stretch;gap:10px">
+        <button class="btn-primary" id="btn-track-disclosure-continue" type="button">Continue</button>
+        <button class="btn-secondary" id="btn-track-disclosure-notnow" type="button">Not now</button>
+      </div>
+    </div>
+  </div>
+
   <div id="sheet-track-done" class="sheet">
     <div class="sheet-grab"></div>
     <div class="sheet-head"><h2>Track finished</h2><button class="sheet-x" data-close type="button">×</button></div>
