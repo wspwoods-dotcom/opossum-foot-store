@@ -474,6 +474,7 @@ function openSheet(id) {
 function closeSheets() {
   var sheets = document.querySelectorAll('.sheet.show');
   var logWasOpen = !!document.getElementById('sheet-log').classList.contains('show');
+  var setFormWasOpen = !!document.getElementById('sheet-setform').classList.contains('show');
   for (var i = 0; i < sheets.length; i++) sheets[i].classList.remove('show');
   $('scrim').classList.remove('show');
   /* never leave a stray recording running behind a closed sheet */
@@ -487,6 +488,10 @@ function closeSheets() {
      the route surfaces itself on the map with a Save button in the route
      bar — an unsaved route is never stranded behind a closed sheet. */
   try { if (window.Tracking && Tracking.rescuePending) Tracking.rescuePending(); } catch (e) { /* noop */ }
+  /* (2026-11-24 ruling): a set form that closes without saving settles its
+     suggestion boxes back to what they opened with — see the note at
+     setFormSnapshot. A saved form skips the settle (saveSetForm flags it). */
+  if (setFormWasOpen) { try { settleSetFormOnClose(); } catch (e) { /* noop */ } }
 }
 
 /* modal — dialogs close only via their buttons, never a backdrop tap (Q105). */
@@ -1604,10 +1609,22 @@ function comboReveal(input, box) {
      its rows overlapping the fields below; he ruled the in-page list
      better and the jumping acceptable. This function is back to its
      ih form: hr's reveal, run after every show-render. */
+  /* (2026-11-24, Tanner's field correction): the reveal used to be gated
+     on the suggestion box SHOWING — the passes bailed when the box had
+     no 'show', and the render paths only called here after a show-render.
+     So the scroll was a side effect of the dropdown: type text that
+     matches the list and the sheet jumps up; type something NOT in the
+     list (a custom entry in the making — no dropdown ever renders) and
+     the field stayed low behind the keyboard, his 2026-11-21 complaint
+     in its remaining half. The render paths now call here on their
+     no-match branches too, and a pass with the box shut runs FIELD-ONLY:
+     the field alone must sit inside the visible band above the
+     keyboard, and a field already fully visible is left exactly where
+     it is (no jump). With the box shown, hr's math is untouched. */
   [60, 380].forEach(function (delay) {
     setTimeout(function () {
-      if (!box.className || box.className.indexOf('show') === -1) return;
       if (document.activeElement !== input) return;
+      var shown = !!(box.className && box.className.indexOf('show') !== -1);
       var sc = input.closest ? input.closest('.scroll') : null;
       if (!sc) {
         var p = input.parentElement;
@@ -1620,10 +1637,14 @@ function comboReveal(input, box) {
       var vv = window.visualViewport;
       var visH = vv ? vv.height : window.innerHeight;
       var ir = input.getBoundingClientRect();
-      var br = box.getBoundingClientRect();
       var target = Math.max(10, visH * 0.30);
-      var listWanted = Math.min(br.height, 230);
-      if (ir.top >= 0 && ir.top <= target + 4 && ir.bottom + listWanted <= visH + 4) return;
+      if (shown) {
+        var br = box.getBoundingClientRect();
+        var listWanted = Math.min(br.height, 230);
+        if (ir.top >= 0 && ir.top <= target + 4 && ir.bottom + listWanted <= visH + 4) return;
+      } else if (ir.top >= 0 && ir.bottom <= visH + 4) {
+        return; /* no list coming, and the field already sits visible */
+      }
       if (sc) sc.scrollTop += ir.top - target;
       else if (input.scrollIntoView) input.scrollIntoView(true);
     }, delay);
@@ -1700,6 +1721,19 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
      does NOT forget the entry from the saved-entry history (the × on a
      suggestion row is the way to remove one from history; the last-used
      value is usually wanted again). */
+  /* (Tanner's ruling, 2026-11-24 — batch item 7): inside the set form, a
+     typed value is not an entry until it is CONFIRMED — picked from the
+     list, tapped on the "Use …" row that offers the typed text itself, or
+     confirmed with Enter. fillFrom (any pick) records the commit in
+     setFormCommits, keyed by input id because attractant rows are rebuilt
+     as they are added and removed; saveSetForm's settle reads it back
+     (settleSetFormForSave). Outside the set form nothing gates on the
+     map, so nothing is recorded there. */
+  function inSetForm() { return !!(input.closest && input.closest('#sheet-setform')); }
+  function noteCommit() {
+    if (!inSetForm() || typeof setFormCommits === 'undefined') return;
+    setFormCommits[input.id] = input.value.trim();
+  }
   var wrap = document.createElement('span');
   wrap.className = 'clear-wrap';
   input.parentNode.insertBefore(wrap, input);
@@ -1720,6 +1754,7 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
   function updateClear() { clearBtn.hidden = !input.value || (noneFace && input.value === 'None'); }
   function fillFrom(btn) {
     input.value = btn.getAttribute('data-v');
+    noteCommit(); /* a pick — from the list or the "Use …" row — IS the confirm (item 7) */
     box.className = 'suggest'; box.innerHTML = '';
     /* ft: the input event below fires render — without this flag it would
        pop the box straight back up with matches for the value just picked. */
@@ -1766,11 +1801,27 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
        in (Q309, Tanner's remedy, superseding the hs exclusion): None
        leads EVERY view of a noneFace box, the bag included. */
     var showNone = !!input._noneFace && (!q || 'none'.indexOf(q) === 0) && q !== 'none';
-    if (!sps.length && !items.length && !showNone) { box.className = 'suggest'; box.innerHTML = ''; return; }
+    /* (Item 7, 2026-11-24): typed text that is neither the opened-with
+       value nor a confirmed commit gets its own row at the top — the
+       typed text itself, tappable. Tapping it runs fillFrom, which is
+       the confirm: the value becomes an entry the save will keep. With
+       no tap, the save settles the box back to what it opened with. */
+    var typedRaw = input.value.trim();
+    var openedRaw = inSetForm() ? setFormOpenedValue(input) : null;
+    var needsConfirm = inSetForm() && !!typedRaw && !(noneFace && typedRaw === 'None') &&
+      !(typeof setFormCommits !== 'undefined' && setFormCommits[input.id] === typedRaw) &&
+      !(openedRaw != null && String(openedRaw).trim().toLowerCase() === typedRaw.toLowerCase());
+    var confirmHtml = needsConfirm
+      ? '<div class="suggest-row"><button type="button" class="suggest-item suggest-confirm" data-v="' + esc(typedRaw) + '">Use &ldquo;' + esc(typedRaw) + '&rdquo;</button></div>'
+      : '';
+    /* No matches: the box stays shut, but the field still gets its
+       reveal (2026-11-24) — comboReveal runs field-only with no list,
+       so a custom entry typed low in the form stays visible. */
+    if (!sps.length && !items.length && !showNone && !needsConfirm) { box.className = 'suggest'; box.innerHTML = ''; comboReveal(input, box); return; }
     var noneHtml = showNone
       ? '<div class="suggest-row"><button type="button" class="suggest-item" data-v="None">None</button></div>'
       : '';
-    var html = noneHtml + items.map(function (v) {
+    var html = confirmHtml + noneHtml + items.map(function (v) {
       /* Q79 (2026-10-01): Tanner — user-typed entries get a × to remove them
          from the list; built-in seeds don't. */
       var del = isSeedEntry(key, v)
@@ -1820,6 +1871,18 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
   input.addEventListener('focus', function () { render(typeToFilter ? 'bag' : undefined); });
   input.addEventListener('blur', function () {
     setTimeout(function () { box.className = 'suggest'; }, 160);
+  });
+  /* (Item 7): Enter in a set-form suggestion box CONFIRMS the typed text
+     — the same commit as tapping the "Use …" row — and finishes the
+     field the way a pick does (ht/Q277): box closes, keyboard drops. */
+  input.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || !inSetForm()) return;
+    var t = input.value.trim();
+    if (!t || (noneFace && t === 'None')) return;
+    e.preventDefault();
+    noteCommit();
+    box.className = 'suggest'; box.innerHTML = '';
+    input.blur();
   });
 }
 /* ================= ho (2026-11-21, Q249 + Q248, Tanner) =================
@@ -1895,7 +1958,7 @@ function comboAttach(inputId, boxId, getOptions, opts) {
       var lbl = (o && typeof o === 'object') ? o.label : o;
       return '<div class="suggest-row"><button type="button" class="suggest-item" data-v="' + esc(v) + '">' + esc(lbl) + '</button></div>';
     }).join('');
-    if (!html) { box.className = 'suggest'; box.innerHTML = ''; return; }
+    if (!html) { box.className = 'suggest'; box.innerHTML = ''; comboReveal(input, box); return; } /* 2026-11-24: no list — field-only reveal, same as attachSuggest */
     box.innerHTML = html;
     box.className = 'suggest show';
     box.querySelectorAll('.suggest-item').forEach(function (b) {
@@ -1981,7 +2044,7 @@ function renderSetNameSuggest() {
     seen[k] = true; names.push(nm);
   });
   names.sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); });
-  if (!names.length) { hideSetNameSuggest(); return; }
+  if (!names.length) { hideSetNameSuggest(); comboReveal(inp, box); return; } /* 2026-11-24: no match — field-only reveal */
   box.innerHTML = names.map(function (n) {
     return '<button type="button" class="suggest-item" data-v="' + esc(n) + '">' + esc(n) + '</button>';
   }).join('');
@@ -3554,6 +3617,29 @@ function locateMe() {
 
 /* ================= 7. SETS ================= */
 var editingSetId = null, pendingCoords = null, pendingSetPhotos = [], editSetPhotos = [], formNoteEntries = [];
+/* (Tanner's ruling, 2026-11-24): "Keep my typing in the sheet, clear it
+   when the sheet closes." The set form's suggestion boxes hold RAW text —
+   there is no commit event: a pick (fillFrom) only fills the box, and at
+   save collectAttrRows reads whatever text sits in each row. That raw-text
+   read WAS the custom-entry route for attractants (Q11/Q12), so the SAVE
+   door could not tell a search fragment ("D") from a novel custom entry.
+   The ABANDON door is settled here: openSetForm snapshots what every
+   suggestion box opened with, and closeSheets — when the set form goes
+   away WITHOUT a save — restores the snapshot, so unpicked search text
+   never lingers in the form as an entry. Typing is untouched while the
+   sheet is open, sponsor-bio detour included (the bio is a modal over
+   the sheet; the sheet never closes under it).
+   (Item 7, Tanner's ruling later the same day): the SAVE door is settled
+   too — typed text now needs a CONFIRM before a save keeps it. A box
+   keeps its text at save only if the value was there when the form
+   opened, was picked from the list, or was confirmed (the "Use …" row
+   in the suggestion list, or Enter). settleSetFormForSave reverts every
+   other box to its opened-with value BEFORE any reader runs, so a scrap
+   is never saved and never remembered in the bag; a confirmed custom
+   entry rides the old road exactly as before (on the set, in the bag). */
+var setFormSnapshot = null, setFormSaved = false, setFormOpening = false;
+var setFormCommits = {}; /* set-form input id -> value confirmed this session (pick / "Use …" row / Enter) */
+var setFormSaveReverts = 0; /* boxes reverted by the save settle; the note toast after a save reads it */
 var setFormOpenSeq = 0, modsRenderSeq = -1; /* Q204: mods fold state is per form-open */
 var setMissingReason = null;
 
@@ -3784,7 +3870,103 @@ function openSponsorBio(id) {
    Website link inside a bio sheet. (The fg build wired the banner logos to
    open the bio; Tanner caught it on his phone.) */
 
+/* (2026-11-24 ruling): what the set form's suggestion boxes opened with —
+   the attractant rows' raw values (empty rows ride as their 'None' face)
+   plus the two single attachSuggest boxes in the form (trap model,
+   missing detail). Captured at the end of openSetForm, once every field
+   has landed. */
+function captureSetFormSnapshot() {
+  var snap = { rows: {}, trapmodel: null, missingDetail: null };
+  ATTRACTANT_KEYS.forEach(function (f) {
+    var host = $('sf-' + f + '-rows'), vals = [];
+    if (host) {
+      var inputs = host.querySelectorAll('.attr-row-input');
+      for (var i = 0; i < inputs.length; i++) vals.push(inputs[i].value);
+    }
+    snap.rows[f] = vals;
+  });
+  var tm = $('sf-trapmodel'); if (tm) snap.trapmodel = tm.value;
+  var md = $('sf-missing-detail'); if (md) snap.missingDetail = md.value;
+  return snap;
+}
+/* Called from closeSheets when sheet-setform goes away. A saved form
+   (setFormSaved, flagged by saveSetForm just before its own close) keeps
+   what it saved. Any other close — the ×, the scrim, another sheet
+   opening over it — restores the opened-with snapshot, so a fragment
+   typed as a search and never picked is gone from the form, not sitting
+   in a row dressed as an entry. */
+function settleSetFormOnClose() {
+  if (setFormOpening) return; /* openSetForm is mid-open; its renders rule */
+  if (setFormSaved) { setFormSaved = false; setFormSnapshot = null; return; }
+  setFormSaveReverts = 0; /* an unsaved close buries any pending revert note */
+  var snap = setFormSnapshot; setFormSnapshot = null;
+  if (!snap) return;
+  ATTRACTANT_KEYS.forEach(function (f) {
+    if (snap.rows[f]) renderAttrRows(f, snap.rows[f]);
+  });
+  var tm = $('sf-trapmodel'); if (tm && snap.trapmodel != null) tm.value = snap.trapmodel;
+  var md = $('sf-missing-detail'); if (md && snap.missingDetail != null) md.value = snap.missingDetail;
+  applyNoneFaces();
+}
+
+/* (Item 7): what a set-form suggestion box opened with, by input id —
+   the snapshot's per-row values for attractant rows, the captured
+   singles otherwise. null when the id is not a settled box. */
+function setFormOpenedValue(input) {
+  var snap = setFormSnapshot;
+  if (!snap || !input) return null;
+  if (input.id === 'sf-trapmodel') return snap.trapmodel;
+  if (input.id === 'sf-missing-detail') return snap.missingDetail;
+  var m = /^sf-(bait|lure|urine|visual|audio|other)-row-(\d+)$/.exec(input.id || '');
+  if (m && snap.rows[m[1]]) { var v = snap.rows[m[1]][+m[2]]; return v == null ? null : v; }
+  return null;
+}
+/* (Item 7): does this box's text survive a save? Empty and the None face
+   always pass (clearing a box is a deliberate act, not an entry); text
+   passes when it is the opened-with value or a confirmed commit. */
+function suggestBoxKept(input) {
+  var t = (input.value || '').trim();
+  if (!t) return true;
+  if (input._noneFace && t === 'None') return true;
+  if (typeof setFormCommits !== 'undefined' && setFormCommits[input.id] === t) return true;
+  var o = setFormOpenedValue(input);
+  if (o != null && t.toLowerCase() === String(o).trim().toLowerCase()) return true;
+  return false;
+}
+/* (Item 7): run at the top of saveSetForm, before any reader touches the
+   boxes. Every unconfirmed box reverts to what it opened with (or its
+   None face), so collectAttrRows / trapDetailValues / the missing-detail
+   read only ever see kept values — a scrap is neither saved nor filed
+   into the bag by rememberAttractants / rememberEntry. */
+function settleSetFormForSave() {
+  var reverts = 0;
+  function settleOne(input) {
+    if (!input || suggestBoxKept(input)) return;
+    var o = setFormOpenedValue(input);
+    input.value = (o != null && String(o).trim()) ? o : (input._noneFace ? 'None' : '');
+    reverts++;
+  }
+  ATTRACTANT_KEYS.forEach(function (f) {
+    var host = $('sf-' + f + '-rows');
+    if (!host) return;
+    var inputs = host.querySelectorAll('.attr-row-input');
+    for (var i = 0; i < inputs.length; i++) settleOne(inputs[i]);
+  });
+  settleOne($('sf-trapmodel'));
+  settleOne($('sf-missing-detail'));
+  setFormSaveReverts += reverts;
+  return reverts;
+}
+/* (Item 7): after a save that reverted anything, one plain note follows
+   the save's own toast — the set saved; the unconfirmed text did not. */
+function noteSaveReverts() {
+  if (!setFormSaveReverts) return;
+  setFormSaveReverts = 0;
+  setTimeout(function () { toast("Some typed text wasn't confirmed and wasn't saved."); }, 3400);
+}
+
 function openSetForm(coords, setId) {
+  setFormOpening = true; /* the settle hook stands down until the open lands */
   setFormOpenSeq++;
   editingSetId = setId || null;
   pendingCoords = coords || null;
@@ -3899,7 +4081,14 @@ function openSetForm(coords, setId) {
   wireCoordsBottom('setform-coords-bottom', showCoords() &&
     (fc && isFinite(+fc.lat) && isFinite(+fc.lng)) ? fmtCoords(fc.lat, fc.lng) : '');
   applyNoneFaces(); /* in (Q309) */
+  /* (2026-11-24 ruling): snapshot what the suggestion boxes opened with,
+     so an unsaved close can settle them back to it. */
+  setFormSnapshot = captureSetFormSnapshot();
+  setFormCommits = {}; /* (item 7): no confirms yet this session */
+  setFormSaveReverts = 0;
+  setFormSaved = false;
   openSheet('sheet-setform');
+  setFormOpening = false;
 }
 
 /* in (Q309): None is the face of empty. After a form's values land,
@@ -4194,6 +4383,11 @@ function saveSetForm() {
   if (!dateSet) { showSetFormError('Date set is required — pick the date.'); return; }
   if (status === 'missing' && !setMissingReason) { showSetFormError('Pick why this set is missing.'); return; }
   hideSetFormError();
+  /* (Item 7, 2026-11-24): unconfirmed typed text in the suggestion boxes
+     reverts BEFORE any reader sees the boxes — see settleSetFormForSave.
+     Runs ahead of the duplicate-name check too, so a "Save over it"
+     re-entry settles an already-settled form and changes nothing. */
+  settleSetFormForSave();
   /* fg / Lefty note 2 (2026-11-11): duplicate set names are blocked with a
      popup — two sets can't share a name, or the History and map get
      ambiguous. Compare trimmed, case-insensitive; the set being edited is
@@ -4295,8 +4489,10 @@ function saveSetForm() {
       }).catch(function () { /* noop */ });
     });
     pendingSetPhotos = [];
+    setFormSaved = true; /* (2026-11-24): this close is a save — the settle hook stands down */
     closeSheets(); switchTab('map'); /* Q76 (2026-10-01): Tanner — saving an edit goes back to the map, not the set detail. */
     toast('Set updated.');
+    noteSaveReverts(); /* (item 7): the unconfirmed-text note, if the settle reverted anything */
     /* B32: no backfill prompt — old catches keep what they had; only new
        catches inherit the set's current attractants. */
     rememberAttractants(s);
@@ -4339,6 +4535,7 @@ function saveSetForm() {
     if (typeof Unlock !== 'undefined' && !Unlock.gateNewSet(ns.lineId)) return;
     Store.data.sets.push(ns);
     recordActivity(ns, 'created', ['Set created']); /* Q272: the trail's first entry */
+    setFormSaved = true; /* (2026-11-24): this close is a save — the settle hook stands down */
     Store.save(); refreshMarkers(); closeSheets();
     if (ns.trapModel) rememberEntry('trapmodel', ns.trapModel); /* Q12 */
     if (ns.missingDetail) rememberEntry('missingdetail', ns.missingDetail); /* Q12 */
@@ -4352,6 +4549,7 @@ function saveSetForm() {
     });
     pendingSetPhotos = [];
     toast('Set saved.');
+    noteSaveReverts(); /* (item 7): the unconfirmed-text note, if the settle reverted anything */
     /* county lookup in background */
     reverseGeocode(ns.lat, ns.lng).then(function (info) {
       if (info.county) { ns.county = info.county; Store.save(); }
@@ -11552,11 +11750,18 @@ function buildGuideTOC() {
       }
     }
   };
-  $('btn-legal').onclick = function () {
+  function openLegalNotices() {
     $('guide-title').textContent = 'Legal notices';
     $('guide-body').innerHTML = window.OPOSSUM_FOOT_LEGAL_HTML || '<p class="dim">Notices not loaded.</p>';
     openSheet('sheet-guide');
-  };
+  }
+  $('btn-legal').onclick = openLegalNotices;
+  /* 2026-11-24 (next build): the Q211 placement spec (2026-10-21) called
+     for a link from the Seasons view to the full umbrella text — it never
+     shipped, so the notices were reachable only through Settings. The
+     Seasons disclaimer now carries its own door to the same sheet. */
+  var seasonsLegalBtn = $('seasons-legal');
+  if (seasonsLegalBtn) seasonsLegalBtn.onclick = openLegalNotices;
   $('btn-features-reset').onclick = function () {
     confirmModal('Reset features to defaults?',
       'This puts all the feature toggles back to their defaults. It will not delete any of your sets, catches, lines, photos, or memos — and you can tap everything back on again afterwards.',
