@@ -72,6 +72,14 @@
 	<string>Opossum Foot uses your location to place sets on the map and show where you are on your line.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Opossum Foot records your route while you run your line, including when the app is in the background, so your track stays unbroken. Your records stay on your phone.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Opossum Foot uses the camera so you can photograph your sets, catches, tags, and licenses right in the app. Your photos stay on your phone.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Opossum Foot lets you choose photos from your library to attach to your sets, catches, tags, and licenses. Your photos stay on your phone.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Opossum Foot uses the microphone so you can record voice notes on your sets and catches. Your recordings stay on your phone.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Opossum Foot uses speech recognition so you can dictate notes instead of typing them.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
