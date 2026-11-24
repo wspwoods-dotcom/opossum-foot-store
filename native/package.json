@@ -12,8 +12,10 @@
   "dependencies": {
     "@capacitor/android": "^8.6.2",
     "@capacitor/core": "^8.6.2",
+    "@capacitor/filesystem": "^8.1.5",
     "@capacitor/geolocation": "^8.2.5",
     "@capacitor/ios": "^8.6.2",
+    "@capacitor/share": "^8.0.3",
     "@capgo/background-geolocation": "^8.6.5",
     "@capgo/native-purchases": "^8.9.17"
   },
