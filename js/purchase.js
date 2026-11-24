@@ -170,6 +170,20 @@ var Unlock = (function () {
   }
 
   /* ---- buying ---- */
+  /* 2026-11-24 (next build): a failed store call must say what the store
+     actually said. On 2026-11-24 a field Restore failed on a thin LTE
+     connection and the blanket "could not reach the store" wording hid
+     whether the store was unreachable or had answered with an error of
+     its own — the two need different remedies. The store's own words now
+     ride along in the message (shortened), and the full error goes to
+     the console for any log capture. */
+  function storeErrText(err) {
+    var s = '';
+    try { s = (err && (err.message || err.code)) || (err ? String(err) : ''); } catch (e) { s = ''; }
+    s = String(s || '').replace(/\s+/g, ' ').trim();
+    if (s.length > 140) s = s.slice(0, 140) + '…';
+    return s;
+  }
   function buy() {
     var np = plugin();
     if (!np) { toast('Unlocking happens in the app itself, from the App Store or Google Play.'); return; }
@@ -181,8 +195,10 @@ var Unlock = (function () {
       setUnlocked(true);
       closeSheets();
       toast('Full app unlocked — every set, every line. Thank you.');
-    }).catch(function () {
-      toast('The purchase did not go through — nothing was charged.');
+    }).catch(function (err) {
+      if (window.console && console.warn) console.warn('Opossum Foot purchase failed:', err);
+      var why = storeErrText(err);
+      toast('The purchase did not go through — nothing was charged.' + (why ? ' The store said: ' + why : ''));
     });
   }
   function ownsFullApp(purchases) {
@@ -205,8 +221,12 @@ var Unlock = (function () {
       } else if (!quiet) {
         toast('No full-app purchase was found for this store account.');
       }
-    }).catch(function () {
-      if (!quiet) toast('Restore could not reach the store — try again with a connection.');
+    }).catch(function (err) {
+      if (window.console && console.warn) console.warn('Opossum Foot restore failed:', err);
+      if (!quiet) {
+        var why = storeErrText(err);
+        toast('Restore could not reach the store — try again with a connection.' + (why ? ' The store said: ' + why : ''));
+      }
     });
   }
 
