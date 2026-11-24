@@ -515,6 +515,7 @@ function downloadCSV(filename, rows) {
     }).join(',');
   }).join('\r\n');
   var blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8' });
+  if (deliverFileNative(blob, filename, filename)) return;
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
@@ -5989,11 +5990,41 @@ function renderPinSchemeList() {
    by name when any sign family is on — and each sheet line carries its
    pin-color dot as the key. The model persists in Store.data.mapShow;
    mapStatusFilter mirrors the set statuses for the existing readers, and
-   Markers reads the same model. */
+   Markers reads the same model.
+   Per-line Show (2026-11-24, Tanner's ruling): the filter belongs to the
+   LINE, not the app — narrow the map on one line and the next line opens
+   with its own view. Models live in Store.data.mapShowByLine[lineId] and
+   showModel() always resolves the ACTIVE line's model, so every existing
+   reader/writer (Show sheet, bulk helpers, the pill) works unchanged. A
+   line with no entry yet seeds from the legacy global Store.data.mapShow
+   (his view at upgrade carries onto the line he's standing on), else the
+   all-on defaults. The legacy key stays as a live MIRROR of the active
+   line's model (the same object) because markers.js keeps its own reader
+   of Store.data.mapShow and must see the active line's families. The seed
+   is snapshotted from the legacy key the first time a data object is
+   seen — before any mirroring — so a line seeded later still starts from
+   the original global, not from a sibling line's narrowed view. */
+var showSeedFor = null, showSeed = null;
 function showModel() {
   var d = Store.data || {};
-  if (!d.mapShow) d.mapShow = {};
-  var m = d.mapShow;
+  if (showSeedFor !== d) {
+    showSeedFor = d;
+    showSeed = (d.mapShow && typeof d.mapShow === 'object') ? JSON.parse(JSON.stringify(d.mapShow)) : null;
+  }
+  if (!d.mapShowByLine || typeof d.mapShowByLine !== 'object') d.mapShowByLine = {};
+  var lid = null;
+  try { lid = activeLineId(); } catch (e) { lid = null; }
+  var m;
+  if (lid) {
+    m = d.mapShowByLine[lid];
+    if (!m || typeof m !== 'object') {
+      m = showSeed ? JSON.parse(JSON.stringify(showSeed)) : {};
+      d.mapShowByLine[lid] = m;
+    }
+  } else {
+    m = (d.mapShow && typeof d.mapShow === 'object') ? d.mapShow : {};
+  }
+  d.mapShow = m; /* mirror: legacy readers (markers.js) see the active line's model */
   STATUS_VALUES.forEach(function (k) { if (m[k] === undefined) m[k] = true; });
   if (!m.fam) m.fam = {};
   ['homes', 'ground', 'tree', 'feeding', 'scent', 'forage'].forEach(function (k) { if (m.fam[k] === undefined) m.fam[k] = true; });
@@ -9190,13 +9221,16 @@ function exportFullBackup() {
   if (!sets.length && !logs.length) { toast('No data to back up yet.'); return; }
   var data = buildBackupData();
   var blob = new Blob([JSON.stringify(data)], { type: 'application/json;charset=utf-8' });
+  var fname = 'opossum-foot-backup-' + lineFileSlug() + '-' + todayISO() + '.json';
+  var doneMsg = 'Full backup downloaded (' + sets.length + ' sets, ' + logs.length + ' logs). Keep it somewhere safe — import it back with "Import data (JSON)" after a reinstall.';
+  if (deliverFileNative(blob, fname, 'Opossum Foot backup', doneMsg)) return;
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'opossum-foot-backup-' + lineFileSlug() + '-' + todayISO() + '.json';
+  a.download = fname;
   document.body.appendChild(a);
   a.click();
   setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
-  toast('Full backup downloaded (' + sets.length + ' sets, ' + logs.length + ' logs). Keep it somewhere safe — import it back with "Import data (JSON)" after a reinstall.');
+  toast(doneMsg);
 }
 
 /* Q214 (2026-10-23, Tanner): full media export. The JSON backup carries the
@@ -9394,14 +9428,17 @@ function exportMediaZip() {
     built.entries.unshift({ path: 'INDEX.csv', blob: new Blob([csv], { type: 'text/csv' }), when: Date.now() });
     built.entries.unshift({ path: 'INDEX.txt', blob: new Blob([mediaIndexText(rows)], { type: 'text/plain' }), when: Date.now() });
     return buildZipBlob(built.entries).then(function (zip) {
+      var fname = 'opossum-foot-media-' + todayISO() + '.zip';
+      var doneMsg = 'Media file downloaded: ' + rows.length + ' photos & recordings from every line (' +
+        (zip.size / 1048576).toFixed(1) + ' MB). The INDEX file inside says what each one is.';
+      if (deliverFileNative(zip, fname, 'Opossum Foot media', doneMsg)) return;
       var a = document.createElement('a');
       a.href = URL.createObjectURL(zip);
-      a.download = 'opossum-foot-media-' + todayISO() + '.zip';
+      a.download = fname;
       document.body.appendChild(a);
       a.click();
       setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
-      toast('Media file downloaded: ' + rows.length + ' photos & recordings from every line (' +
-        (zip.size / 1048576).toFixed(1) + ' MB). The INDEX file inside says what each one is.');
+      toast(doneMsg);
     });
   }).catch(function () { toast('Media export hit a snag — your data is untouched. Try again.'); });
 }
@@ -9731,6 +9768,8 @@ function shareActiveLine() {
   }
   var fname = 'opossum-foot-line-' + lineFileSlug() + '-' + todayISO() + '.json';
   var blob = new Blob([JSON.stringify(data)], { type: 'application/json;charset=utf-8' });
+  var savedMsg = 'Line file saved (' + data.sets.length + ' sets, ' + data.logs.length + ' logs). Send it to your buddy — they open Opossum Foot and tap “Import data (JSON)”.';
+  if (deliverFileNative(blob, fname, 'Opossum Foot line — ' + ln.name, savedMsg)) return;
   var file = null;
   try { file = new File([blob], fname, { type: 'application/json' }); } catch (e) { file = null; }
   var nav = (typeof navigator !== 'undefined') ? navigator : {};
@@ -9752,7 +9791,7 @@ function shareActiveLine() {
   document.body.appendChild(a);
   a.click();
   setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
-  toast('Line file saved (' + data.sets.length + ' sets, ' + data.logs.length + ' logs). Send it to your buddy — they open Opossum Foot and tap “Import data (JSON)”.');
+  toast(savedMsg);
 }
 
 function findImportedTransfer(transferId) {
@@ -10005,7 +10044,84 @@ function buildPhotoPack(ln) {
     });
   });
 }
+/* Native file delivery (store builds). In the Capacitor shell the web
+   file-out tricks are dead ends — the WKWebView swallows anchor downloads
+   and navigator.share cannot hand it a File — yet the old code toasted
+   "downloaded" anyway (field-confirmed on Tanner's phone, 2026-11-24:
+   the backup toast fired and no file landed anywhere). On native a file
+   goes out the real door: write it to the cache directory with the
+   Filesystem plugin, then present the system share sheet via the Share
+   plugin, which offers Save to Files. The plugins resolve only when a
+   share actually completes and reject with "Share canceled" when the
+   user backs out — so the success toast below is earned, a cancel stays
+   silent, and a real failure says so plainly. On the web nothing here
+   runs: every export keeps the exact behaviour it has today. */
+function capPlugin(name) {
+  try {
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[name]) return window.Capacitor.Plugins[name];
+  } catch (e) { /* no bridge */ }
+  return null;
+}
+function isNativeShell() {
+  try {
+    return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  } catch (e) { return false; }
+}
+/* Blob → base64 in slices, so a photos ZIP never needs a second full-size
+   copy of itself held in memory: each slice is read on its own and only
+   the base64 text (which Filesystem.writeFile requires) accumulates.
+   The slice size is a multiple of 3 so the per-slice encodings join
+   seamlessly into one valid base64 string. */
+function blobToBase64(blob) {
+  var SLICE = 3 * 512 * 1024;
+  var parts = [];
+  var offset = 0;
+  function next() {
+    if (offset >= blob.size) return Promise.resolve(parts.join(''));
+    var slice = blob.slice(offset, offset + SLICE);
+    offset += SLICE;
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () {
+        var s = String(r.result || '');
+        parts.push(s.slice(s.indexOf(',') + 1));
+        resolve();
+      };
+      r.onerror = function () { reject(r.error || new Error('read failed')); };
+      r.readAsDataURL(slice);
+    }).then(next);
+  }
+  return next();
+}
+var FILE_SHARE_FAIL_TOAST = 'Could not open the share sheet — your file was not saved.';
+function nativeShareFile(blob, fname, title, doneToast) {
+  var FS = capPlugin('Filesystem'), SH = capPlugin('Share');
+  if (!FS || !SH) { toast(FILE_SHARE_FAIL_TOAST); return; }
+  blobToBase64(blob).then(function (b64) {
+    return FS.writeFile({ path: fname, data: b64, directory: 'CACHE' });
+  }).then(function (res) {
+    if (res && res.uri) return res.uri;
+    return FS.getUri({ directory: 'CACHE', path: fname }).then(function (r) { return r.uri; });
+  }).then(function (uri) {
+    return SH.share({ title: title || fname, url: uri });
+  }).then(function () {
+    if (doneToast) toast(doneToast);
+  }).catch(function (err) {
+    var msg = err ? String(err.message || err) : '';
+    if (/cancel/i.test(msg)) return; /* user backed out of the sheet — not an error */
+    toast(FILE_SHARE_FAIL_TOAST);
+  });
+}
+/* Route a finished file out the door that works where the app is running.
+   Returns true when the native path took it; false means the caller runs
+   its legacy web behaviour, unchanged. */
+function deliverFileNative(blob, fname, title, doneToast) {
+  if (!isNativeShell()) return false;
+  nativeShareFile(blob, fname, title, doneToast);
+  return true;
+}
 function shareJsonFile(blob, fname, title, doneToast) {
+  if (deliverFileNative(blob, fname, title, doneToast)) return;
   var file = null;
   try { file = new File([blob], fname, { type: 'application/json' }); } catch (e) { file = null; }
   var nav = (typeof navigator !== 'undefined') ? navigator : {};
@@ -10997,6 +11113,7 @@ function deleteLine(id) {
         }
       });
       d.lines = d.lines.filter(function (x) { return x.id !== id; });
+      if (d.mapShowByLine) delete d.mapShowByLine[id]; /* per-line Show: the line's view goes with it */
       d.sets = d.sets.filter(function (x) { return x.lineId !== id; });
       d.logs = d.logs.filter(function (l) { return !(l.lineId === id || deadSetIds[l.setId]); });
       if (Array.isArray(d.activity)) d.activity = d.activity.filter(function (a) { return !(a.lineId === id || deadSetIds[a.setId]); }); /* Q272 */
