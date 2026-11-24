@@ -316,14 +316,20 @@ var Markers = (function () {
   function deleteDetail() {
     if (!detailId) return;
     var id = detailId;
-    if (!window.confirm('Delete this marker for good? This cannot be undone.')) return;
-    Store.data.markers = data().filter(function (m) { return m.id !== id; });
-    Store.save();
-    IDB.all('photos').then(function (all) {
-      all.filter(function (p) { return p.markerId === id; }).forEach(function (p) { IDB.del('photos', p.id); });
-    }).catch(function () {});
-    detailId = null; closeSheets(); render();
-    toast('Marker deleted.');
+    /* 2026-11-24 (next build): the app's own modal instead of
+       window.confirm — a native confirm can be swallowed in the store
+       build's iOS shell when another presentation is in flight. */
+    var go = function () {
+      Store.data.markers = data().filter(function (m) { return m.id !== id; });
+      Store.save();
+      IDB.all('photos').then(function (all) {
+        all.filter(function (p) { return p.markerId === id; }).forEach(function (p) { IDB.del('photos', p.id); });
+      }).catch(function () {});
+      detailId = null; closeSheets(); render();
+      toast('Marker deleted.');
+    };
+    if (typeof confirmModal2 === 'function') { confirmModal2('Delete this marker for good?', 'This cannot be undone.', 'Delete', go); return; }
+    if (window.confirm('Delete this marker for good? This cannot be undone.')) go();
   }
 
   return {
