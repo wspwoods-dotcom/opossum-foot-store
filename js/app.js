@@ -109,8 +109,24 @@ var Store = {
     /* gn: the trapper's own trap tag text (edited in Paperwork → My
        Trap Tag since 2026-11-25; it lived in Settings → Where You
        Trap before that — the stored value never moved), shown back
-       beside the state's Cat 1 trap-tag rule on the Seasons tab. */
-    if (typeof this.data.trapTag !== 'string') this.data.trapTag = '';
+       beside the state's Cat 1 trap-tag rule on the Seasons tab.
+       2026-11-25 (later, Tanner): ONE string became a LIST —
+       Store.data.trapTags, entries {id, text} — because a trapper's
+       iron can carry different wordings at once (name & address on
+       some traps, a state ID number on others). Migration: the old
+       single string becomes the first entry, then the old field is
+       deleted so nothing reads it again; an old backup carrying
+       only the string lands here and migrates the same way.
+       Surfaces read the list through trapTagEntries(), never the
+       raw field. */
+    if (!Array.isArray(this.data.trapTags)) {
+      var legacyTagText = (typeof this.data.trapTag === 'string') ? this.data.trapTag.trim() : '';
+      this.data.trapTags = legacyTagText ? [{ id: 'tag-legacy', text: legacyTagText }] : [];
+      delete this.data.trapTag;
+    }
+    this.data.trapTags = this.data.trapTags.filter(function (e) { return e && typeof e.text === 'string'; }).map(function (e, i) {
+      return { id: (typeof e.id === 'string' && e.id) ? e.id : 'tag-mig-' + i, text: e.text };
+    });
     migrateCheckClock(this.data);
     /* Q104 (2026-10-01): Tanner — notes get no tap-to-fill suggestions;
        purge any remembered notes, including ones already deleted from sets. */
@@ -478,6 +494,7 @@ function closeSheets() {
   var sheets = document.querySelectorAll('.sheet.show');
   var logWasOpen = !!document.getElementById('sheet-log').classList.contains('show');
   var setFormWasOpen = !!document.getElementById('sheet-setform').classList.contains('show');
+  var markerFormWasOpen = !!document.getElementById('sheet-marker-form').classList.contains('show');
   for (var i = 0; i < sheets.length; i++) sheets[i].classList.remove('show');
   $('scrim').classList.remove('show');
   /* never leave a stray recording running behind a closed sheet */
@@ -494,6 +511,10 @@ function closeSheets() {
      suggestion boxes back to what they opened with — see the note at
      setFormSnapshot. A saved form skips the settle (saveSetForm flags it). */
   if (setFormWasOpen) { try { settleSetFormOnClose(); } catch (e) { /* noop */ } }
+  /* (2026-11-25): a marker form that closes without saving drops the
+     memos staged under its provisional owner (the marker save adopts
+     the id and clears it first, so a saved close no-ops here). */
+  if (markerFormWasOpen && typeof Markers !== 'undefined' && Markers.dropPendingFormMemos) { try { Markers.dropPendingFormMemos(); } catch (e) { /* noop */ } }
 }
 
 /* modal — dialogs close only via their buttons, never a backdrop tap (Q105). */
@@ -501,9 +522,21 @@ function showModal(html) {
   $('modal-card').innerHTML = html;
   $('modal').classList.remove('sponsor-sheet'); /* Q171: sheet mode is opt-in per open */
   $('modal').classList.remove('sheet-dress'); /* gx: the bulk family's sheet dress is opt-in per open, same pattern */
+  $('modal').classList.remove('form-dock'); /* Item 21: the docked dress is opt-in per open, same pattern */
   $('modal').classList.add('show');
 }
-function closeModal() { $('modal').classList.remove('show'); }
+/* Item 21 (2026-11-25): a tall FORM modal opens docked — the html is
+   the form's own, restructured as a .modal-scroll region (title +
+   fields) over a .modal-actions footer (the action bar), and the
+   .form-dock rules in styles.css give the card the sheets' shape so
+   Cancel/Save never sit at the foot of an over-tall scroll. See the
+   census in the build notes: landowner, trip editor, bulk Edit-all,
+   species detail wear it; short dialogs keep plain showModal. */
+function showDockedModal(html) {
+  showModal(html);
+  $('modal').classList.add('form-dock');
+}
+function closeModal() { $('modal').classList.remove('show'); $('modal').classList.remove('form-dock'); }
 function confirmModal(title, body, okLabel, onOk) {
   showModal(
     '<h3>' + esc(title) + '</h3><p>' + body + '</p>' +
@@ -514,14 +547,20 @@ function confirmModal(title, body, okLabel, onOk) {
   $('m-ok').onclick = function () { closeModal(); onOk(); };
 }
 
-function downloadCSV(filename, rows) {
+/* The one CSV serializer: every report file — a single download or a
+   file inside the all-reports ZIP (item 17) — is built from these exact
+   bytes, so the two can never drift apart. */
+function csvFileText(rows) {
   var csv = rows.map(function (r) {
     return r.map(function (c) {
       var s = String(c == null ? '' : c);
       return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     }).join(',');
   }).join('\r\n');
-  var blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8' });
+  return "\uFEFF" + csv;
+}
+function downloadCSV(filename, rows) {
+  var blob = new Blob([csvFileText(rows)], { type: 'text/csv;charset=utf-8' });
   if (deliverFileNative(blob, filename, filename)) return;
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1256,6 +1295,7 @@ function applyFeatureToggles() {
   var vOn = Store.data.voiceOn !== false;
   ['btn-se-memo', 'se-memos-label', 'se-memos', 'setform-memos',
    'sd-memos-label', 'sd-memos',
+   'btn-mk-memo', 'mk-memos-label', 'mk-memos', 'markerform-memos',
    'sd-notes-head', 'sd-notes'].forEach(function (id) {
     var el = $(id);
     if (el) el.style.display = vOn ? '' : 'none';
@@ -1736,6 +1776,12 @@ function sweepClearInputs(root) {
     if (inp.closest && inp.closest('.btn-row')) return;
     ensureClearInput(inp);
   });
+  /* (2026-11-25): wiring alone is not enough — a container that was
+     populated from stored data before this sweep ran (every form
+     open, every pane switch) gets every registered pill recomputed
+     from its field's live value, so a filled field shows its pill
+     before any interaction. See refreshClearPill. */
+  refreshClearPillsIn(root);
 }
 /* ================= Full-screen picker (2026-11-25, Tanner's ruling:
    "Yes, I agree with your recommendation") =================
@@ -1773,9 +1819,16 @@ function sweepClearInputs(root) {
    ("Trap brand" over a field labeled "Trap Manufacturer" is the
    mismatch that brought the ruling; "Trap type" was the case one.) */
 function titleCaseWords(s) {
-  return String(s || '').split(/\s+/).map(function (w) {
+  /* Small words (of, the, a…) stay lowercase mid-title — proper title
+     case: the marker form's "Kind of sign" titles its picker
+     "Kind of Sign", not "Kind Of Sign" (2026-11-25). First words and
+     acronyms are untouched, as are all other current labels (none
+     carries a small word). */
+  var SMALL = { of: 1, the: 1, a: 1, an: 1, and: 1, or: 1, in: 1, on: 1, for: 1, to: 1 };
+  return String(s || '').split(/\s+/).map(function (w, i) {
     if (!w) return w;
     if (/^[A-Z0-9]{2,}$/.test(w)) return w; /* acronyms ride as written */
+    if (i > 0 && SMALL[w.toLowerCase()]) return w.toLowerCase();
     return w.charAt(0).toUpperCase() + w.slice(1);
   }).join(' ');
 }
@@ -1860,24 +1913,56 @@ var Picker = {
     try { this.qEl.blur(); } catch (e) { /* noop */ }
   }
 };
-/* (Tanner, 2026-11-25): the clear control — one labeled "Clear" pill
-   beside the box, same pill family as the attractant rows' "Remove"
-   pill, each pill labeled by its job. It shows only while the field
-   is filled, and tapping it returns the field to its resting face
-   with exactly the clear semantics the field has always had. Form-side
-   controls never touch the field's list: Clear empties this form's
-   value, Remove drops this form's row, and the item stays in the
-   bag/catalog either way — forgetting an entry happens only inside
-   the picker, on the saved row's delete-× (his ruling, same day).
-   The set name box is the one field that is not a list item at all. */
+/* (Tanner, 2026-11-25): the clear control — one button beside the
+   box, in the same dark/gold family as the attractant rows' "Remove"
+   pill. It shows only while the field is filled, and tapping it
+   returns the field to its resting face with exactly the clear
+   semantics the field has always had. Form-side controls never touch
+   the field's list: Clear empties this form's value, Remove drops
+   this form's row, and the item stays in the bag/catalog either
+   way — forgetting an entry happens only inside the picker, on the
+   saved row's delete-× (his ruling, same day). The set name box is
+   the one field that is not a list item at all.
+   (His later ruling, same day — overruling the word): the button's
+   face is a ×, not the labeled "Clear" pill it shipped as for a
+   morning. The class hook (.clear-pill), the presence law and every
+   behavior are unchanged; the accessible name still says what it
+   does (aria-label "Clear"). The "Remove" pill stays labeled — this
+   ruling touches only the clear control. The live search boxes'
+   in-box × is a separate, older control and is untouched. */
 function makeClearPill(wrap) {
   var pill = document.createElement('button');
   pill.type = 'button';
-  pill.className = 'clear-pill';
-  pill.setAttribute('aria-label', 'Clear this field');
-  pill.textContent = 'Clear';
+  pill.className = 'clear-pill clear-x';
+  pill.setAttribute('aria-label', 'Clear');
+  pill.textContent = '×';
   wrap.appendChild(pill);
   return pill;
+}
+/* (2026-11-25, Build 96 field defect — Tanner's "Beaver Creek DP"
+   screenshot): a pill's visibility must be a pure function of its
+   field's CURRENT value. The first cut recomputed it only at wire
+   time and on 'input' events — but the forms are populated from
+   stored data by bare .value writes (openSetForm and friends), which
+   fire no event, so a sheet opened over stored values kept whatever
+   visibility the pill had when the field was wired at boot (empty →
+   hidden): Trap Manufacturer "Duke", Set Type and Variation sat
+   filled with no pill, while Set Name (which has its own explicit
+   refresh in openSetForm) and the fields Tanner had touched in the
+   session looked right. Every wiring path now registers its pill on
+   the input (_clearPill + _clearNoneFace, the path's own formula),
+   and refreshClearPill recomputes from the live value: the sheet /
+   pane sweep calls it for the whole container on every open, and
+   the programmatic writers that run while a form is open (the
+   maker→type cascade, the variation fill/clear) call it on the
+   field they just wrote. */
+function refreshClearPill(input) {
+  if (!input || !input._clearPill) return;
+  input._clearPill.hidden = !input.value || (!!input._clearNoneFace && input.value === 'None');
+}
+function refreshClearPillsIn(root) {
+  if (!root || !root.querySelectorAll) return;
+  root.querySelectorAll('input').forEach(function (inp) { refreshClearPill(inp); });
 }
 /* (Tanner, 2026-11-25): the notes composers and the row that commits
    each — while the keyboard is open and a composer has focus, its row
@@ -1907,7 +1992,7 @@ document.addEventListener('focusin', function (e) {
     if (row) row.classList.add('note-row-armed');
   }
 });
-function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
+function attachSuggest(inputId, boxId, key, typeToFilter, noneFace, noClearPill) {
   var input = $(inputId), box = $(boxId);
   if (!input || !box || input._suggestWired) return;
   input._suggestWired = true;
@@ -1943,17 +2028,26 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
   wrap.appendChild(input);
   /* (2026-11-25): the beside-the-box "Clear" pill — see makeClearPill.
      Same clear semantics as the retired inside ×: value only, the
-     entry stays in the bag. */
-  var clearBtn = makeClearPill(wrap);
-  clearBtn.hidden = !input.value || (noneFace && input.value === 'None');
-  clearBtn.onclick = function (e) {
-    if (e && e.stopPropagation) e.stopPropagation();
-    input.value = noneFace ? 'None' : '';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    /* Picker era: no input.focus() here — focusing the field now
-       OPENS the picker, and clearing a box must never pop a picker. */
-  };
-  function updateClear() { clearBtn.hidden = !input.value || (noneFace && input.value === 'None'); }
+     entry stays in the bag. (Tanner, 2026-11-25, later ruling): a row
+     in a 2+ attractant stack carries NO Clear pill — the stack's
+     "Remove" pill does the row's whole job and the pair squeezed the
+     box ("Awesome Opossum racc…" truncated on his phone). The caller
+     (renderAttrRows) passes noClearPill for stacked rows; a stack at
+     exactly one row is a single field and keeps its pill. */
+  var clearBtn = null;
+  if (!noClearPill) {
+    clearBtn = makeClearPill(wrap);
+    clearBtn.hidden = !input.value || (noneFace && input.value === 'None');
+    clearBtn.onclick = function (e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+      input.value = noneFace ? 'None' : '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      /* Picker era: no input.focus() here — focusing the field now
+         OPENS the picker, and clearing a box must never pop a picker. */
+    };
+  }
+  input._clearPill = clearBtn; input._clearNoneFace = noneFace; /* load-state refresh registry — see refreshClearPill */
+  function updateClear() { if (clearBtn) clearBtn.hidden = !input.value || (noneFace && input.value === 'None'); }
   function fillFrom(btn) {
     input.value = btn.getAttribute('data-v');
     noteCommit(); /* a pick — from the list or the "Add … to list" row — IS the confirm (item 7) */
@@ -2068,7 +2162,24 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
            it is a third flex item and its width is exactly what pushed
            this row out of true; the product itself stays one tap away
            in the catalog rows below. Non-sponsor rows keep their ×. */
-        return sponsorSuggestRowHtml(m.sp, m.name, v);
+        /* RULING A (Tanner, 2026-11-25, Build 96 field pass): "How do
+           I delete Last Stop out of my bag if I don't want it though?"
+           A sponsored product IN HIS BAG gets a remove × — but as a
+           sibling of the sponsor box inside a row wrapper, never as a
+           third flex item inside the box (the width lesson above
+           stands). The × is the ordinary .suggest-del: the render()
+           wiring below binds it to forgetEntry(key, v), which ends
+           the bag membership ONLY — membership lives in
+           Store.data.savedEntries[key], while the catalog rows are
+           built from SPONSORS by sponsorSuggests and never read
+           savedEntries, so the product stays in the sponsor's list
+           exactly as before and re-picking it re-adds it (the set
+           save remembers attractants as it always has). Sponsored
+           rows NOT in the bag (the sps list below) still carry no ×;
+           the Q79 seed guard is kept for symmetry. */
+        var bagDel = isSeedEntry(key, v) ? ''
+          : '<button type="button" class="suggest-del" data-v="' + esc(v) + '" aria-label="Remove from your bag">×</button>';
+        return '<div class="suggest-row">' + sponsorSuggestRowHtml(m.sp, m.name, v) + bagDel + '</div>';
       }
       /* (Tanner, 2026-11-25): his own remembered entries wear the
          "In your bag" tag, exactly as a saved sponsor row does — the
@@ -2222,6 +2333,7 @@ function comboAttach(inputId, boxId, getOptions, opts) {
        Set Type, Variation) get their first clear here. */
     var clearBtn = makeClearPill(wrap);
     clearBtn.hidden = !input.value || (noneFace && input.value === 'None');
+    input._clearPill = clearBtn; input._clearNoneFace = noneFace; /* load-state refresh registry — see refreshClearPill */
     clearBtn.onclick = function (e) {
       if (e && e.stopPropagation) e.stopPropagation();
       input.value = noneFace ? 'None' : '';
@@ -2356,7 +2468,10 @@ function drainCombos() {
    (makeClearPill) — EXCEPT the live search boxes: they hold no value,
    they filter a list, so their in-box × stays (Tanner, same day: "a
    different animal"), named here on purpose as the one inside × left. */
-var SEARCH_BOX_IDS = { 'history-search': 1, 'seasons-search': 1, 'landowner-search': 1, 'mk-kind-search': 1, 'log-species-search': 1 };
+/* 2026-11-25: 'mk-kind-search' leaves this list with the bespoke
+   marker-kinds sheet it filtered — Kind of sign is a picker field
+   now, and its search box is the picker's own. */
+var SEARCH_BOX_IDS = { 'history-search': 1, 'seasons-search': 1, 'landowner-search': 1, 'log-species-search': 1 };
 function ensureClearInput(input) {
   if (!input || input.closest('.clear-wrap') || input._clearWired) return;
   input._clearWired = true;
@@ -2377,6 +2492,7 @@ function ensureClearInput(input) {
     btn = makeClearPill(wrap);
   }
   btn.hidden = !input.value;
+  input._clearPill = btn; input._clearNoneFace = false; /* load-state refresh registry — see refreshClearPill */
   btn.onclick = function (e) {
     if (e && e.stopPropagation) e.stopPropagation();
     input.value = '';
@@ -2468,6 +2584,7 @@ function wireSetNameField() {
   var btn = makeClearPill(wrap);
   btn.id = 'sf-name-clear';
   btn.hidden = !inp.value;
+  inp._clearPill = btn; inp._clearNoneFace = false; /* load-state refresh registry — see refreshClearPill */
   setNameClearBtn = btn;
   btn.onclick = function (e) {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -2537,18 +2654,23 @@ function renderAttrRows(field, values, minRows) {
       '<input type="text" class="attr-row-input" id="sf-' + field + '-row-' + i + '" data-attr="' + field + '"' +
       ' autocomplete="off" value="' + esc(vals[i]) + '">' +
       /* (Tanner, 2026-11-25): the row remover is a labeled "Remove"
-         pill, not a bare × — the box already carries a × of its own
-         (the in-box clear, which only empties the value to None), and
-         two identical marks for two different jobs confused. The pill
-         still shows only with 2+ rows and still removes the whole
-         row in one tap; the in-box clear × is untouched. */
+         pill, not a bare ×. It shows only with 2+ rows and removes
+         the whole row in one tap. (His later ruling, same day): in a
+         2+ stack Remove is the row's ONLY pill — no Clear beside it
+         (the pair squeezed the box until values truncated); a stack
+         at exactly one row is a single field and carries Clear
+         instead. The stack re-renders whole on every add/remove, so
+         the swap rides the render: add a second row and the first
+         row's Clear gives way to Remove; remove down to one and the
+         survivor's Clear returns, its value untouched. Removing a
+         row never touches the bag/list — form-side law stands. */
       (showX ? '<button type="button" class="attr-row-x" data-attr="' + field + '" data-i="' + i + '" aria-label="Remove this row">Remove</button>' : '') +
       '</div><div class="suggest" id="sf-' + field + '-row-' + i + '-suggest"></div>';
   }
   host.innerHTML = html;
   for (var j = 0; j < vals.length; j++) {
     /* ft: the product rows are type-to-filter — nothing pops until typing. */
-    attachSuggest('sf-' + field + '-row-' + j, 'sf-' + field + '-row-' + j + '-suggest', field, true, true); /* in (Q309): noneFace */
+    attachSuggest('sf-' + field + '-row-' + j, 'sf-' + field + '-row-' + j + '-suggest', field, true, true, showX); /* in (Q309): noneFace; stacked rows (2+) get no Clear pill — Remove only */
   }
   /* Q30: refresh the bait-rule warning whenever bait rows re-render. */
   if (field === 'bait' && typeof updateBaitWarn === 'function') updateBaitWarn();
@@ -2575,31 +2697,20 @@ function renderAttrRows(field, values, minRows) {
 }
 /* ---- Q103 (2026-10-01): Tanner — GPS coordinates are hidden everywhere
    visible (screenshot-safe) unless Settings → Privacy → "Show GPS coordinates"
-   is on. The tap-to-copy footers below only render when it's on. */
+   is on. The footers below only render when it's on.
+   Item 14 (2026-11-25): Tanner — the tap-to-copy on those footers COMES OUT.
+   A man could copy his coordinates without realizing it and paste them
+   somewhere public; a screenshot serves anyone who truly wants them off
+   the page. The footers are plain read-only text now: no click handler,
+   no clipboard write, no "Copied" toast. */
 function showCoords() { return !!Store.data.showCoords; }
 function fmtCoords(lat, lng) {
   return Number(lat).toFixed(5) + ', ' + Number(lng).toFixed(5);
 }
-function copyCoordsText(t) {
-  function done() { toast('Coordinates copied'); }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(t).then(done, function () { copyCoordsFallback(t, done); });
-  } else copyCoordsFallback(t, done);
-}
-function copyCoordsFallback(t, done) {
-  var ta = document.createElement('textarea');
-  ta.value = t;
-  ta.style.position = 'fixed'; ta.style.opacity = '0';
-  document.body.appendChild(ta);
-  ta.select();
-  try { document.execCommand('copy'); done(); } catch (e) { toast('Copy failed — long-press to copy'); }
-  document.body.removeChild(ta);
-}
-function wireCoordsBottom(id, text) {
+function showCoordsBottom(id, text) {
   var el = $(id);
   if (!el) return;
   el.textContent = text;
-  el.onclick = function () { copyCoordsText(text); };
 }
 /* Read the rows back: trimmed, empties dropped, dupes collapsed
    case-insensitively so "Fox urine" twice scores once. */
@@ -2720,6 +2831,7 @@ function renderTrapTypeOptions(maker, keepKey) {
   else if (keys.indexOf(cur) >= 0) sel.value = cur;
   else sel.value = '';
   paintSelectHint(sel);
+  refreshClearPill(sel); /* a bare .value write fires no event — the pill follows the value it just wrote */
 }
 /* Maker switched: try to keep the same stored trap type across the switch. */
 function resolvedTrapType() {
@@ -2747,6 +2859,7 @@ function onMakerChange() {
   }
   paintSelectHint($('sf-maker'));
   renderTrapDetailFields();
+  refreshClearPill($('sf-type')); /* the re-map above writes sf-type bare, after renderTrapTypeOptions' own refresh */
 }
 /* Read the current dynamic trap-detail field values ('' when absent). */
 function trapDetailValues() {
@@ -4198,6 +4311,10 @@ function locateMe() {
 
 /* ================= 7. SETS ================= */
 var editingSetId = null, pendingCoords = null, pendingSetPhotos = [], editSetPhotos = [], formNoteEntries = [];
+/* (2026-11-25): a NEW set's provisional memo owner — minted at
+   openSetForm, adopted as the set's own id at save, dropped with its
+   memos on an unsaved close. See the note in openSetForm. */
+var pendingSetMemoId = null;
 /* (Tanner's ruling, 2026-11-24): "Keep my typing in the sheet, clear it
    when the sheet closes." The set form's suggestion boxes hold RAW text —
    there is no commit event: a pick (fillFrom) only fills the box, and at
@@ -4479,6 +4596,10 @@ function captureSetFormSnapshot() {
 function settleSetFormOnClose() {
   if (setFormOpening) return; /* openSetForm is mid-open; its renders rule */
   if (setFormSaved) { setFormSaved = false; setFormSnapshot = null; return; }
+  /* (2026-11-25): an unsaved close drops the New Set's staged memos —
+     they sit under a provisional owner the save never adopted, and no
+     set will ever bear that id. */
+  if (pendingSetMemoId) { var pmId = pendingSetMemoId; pendingSetMemoId = null; dropMemosForOwner(pmId, 'setId'); }
   setFormSaveReverts = 0; /* an unsaved close buries any pending revert note */
   var snap = setFormSnapshot; setFormSnapshot = null;
   if (!snap) return;
@@ -4572,6 +4693,16 @@ function openSetForm(coords, setId) {
   setFormOpening = true; /* the settle hook stands down until the open lands */
   setFormOpenSeq++;
   editingSetId = setId || null;
+  /* (2026-11-25): if a previous New Set session's provisional memo
+     owner somehow lingered (its settle never ran), drop its memos
+     before minting a fresh one — a provisional id no set bears owns
+     nothing worth keeping. */
+  if (pendingSetMemoId && !getSet(pendingSetMemoId)) dropMemosForOwner(pendingSetMemoId, 'setId');
+  /* A NEW set's memos stage under a provisional owner id, minted
+     here: the memo block renders on New Set as on Edit Set, records
+     land under this id, saveSetForm adopts it as the set's own id,
+     and an unsaved close drops them (settleSetFormOnClose). */
+  pendingSetMemoId = setId ? null : uid('s');
   pendingCoords = coords || null;
   var s = setId ? getSet(setId) : null;
   /* Carry-forward: a new set starts as a copy of the last set on this line —
@@ -4663,13 +4794,22 @@ function openSetForm(coords, setId) {
      the read-only summary no longer carries the pickers. */
   pendingSetPhotos = [];
   editSetPhotos = [];
+  /* (2026-11-25, Tanner — "My voice memo is gone" on a New Set with
+     every toggle on): the wrap used to hide unless editingSetId —
+     Q71's edit-only design, because a memo record needs an existing
+     owner id. The provisional owner above retires that gate: the
+     block renders on New and Edit alike, and the voice toggle still
+     governs it through applyFeatureToggles' display rule, exactly as
+     it governed the edit form. */
   var memoWrap = $('setform-memos');
-  if (memoWrap) memoWrap.hidden = !editingSetId;
+  if (memoWrap) memoWrap.hidden = false;
   var seBtn = $('btn-se-memo');
   if (seBtn) seBtn.innerHTML = MEMO_IDLE_HTML;
   if (editingSetId) {
     loadSetPhotos(editingSetId, function (sp) { editSetPhotos = sp; renderPendingSetPhotos(); refreshNotesBox('setform-notessec', 'sf-notes', 'se-memos', 'sf-photos'); /* Q99 */ });
     renderMemos(editingSetId, 'se-memos', true);
+  } else if (pendingSetMemoId) {
+    renderMemos(pendingSetMemoId, 'se-memos', true);
   }
   renderPendingSetPhotos();
   refreshNotesBox('setform-notessec', 'sf-notes', 'se-memos', 'sf-photos'); /* Q99 */
@@ -4679,7 +4819,7 @@ function openSetForm(coords, setId) {
   applySetFieldToggles();
   /* Q103: quiet coords at the bottom when the Privacy toggle is on — what the form will save */
   var fc = s ? { lat: s.lat, lng: s.lng } : pendingCoords;
-  wireCoordsBottom('setform-coords-bottom', showCoords() &&
+  showCoordsBottom('setform-coords-bottom', showCoords() &&
     (fc && isFinite(+fc.lat) && isFinite(+fc.lng)) ? fmtCoords(fc.lat, fc.lng) : '');
   applyNoneFaces(); /* in (Q309) */
   /* (2026-11-24 ruling): snapshot what the suggestion boxes opened with,
@@ -4822,7 +4962,14 @@ function confirmSaveOverSet(ds) {
   $('m-ok').onclick = function () {
     purgeSetEverywhere(ds.id);
     closeModal();
-    saveSetForm();
+    /* (Item 16, 2026-11-25): the confirmation rides into the re-entered
+       save — saveSetForm(true) — so the Q270 guard does not fire again.
+       Without the carry-over, a line holding several same-name sets
+       (the Google pin import plants a whole list of "Dropped pin")
+       raised a fresh, identical "already taken" dialog after every
+       single purge: an A<->B staircase Tanner read as an infinite
+       loop, and the save never landed. */
+    saveSetForm(true);
   };
 }
 /* ================= Q272 (2026-11-21, Tanner): SET ACTIVITY TRAIL ======
@@ -4972,7 +5119,7 @@ function renderHistActivity() {
   return html;
 }
 
-function saveSetForm() {
+function saveSetForm(overwriteConfirmed) {
   var name = $('sf-name').value.trim();
   var status = $('sf-status').value;
   var dateSet = $('sf-date').value;
@@ -4995,12 +5142,42 @@ function saveSetForm() {
      allowed to keep its own name. The auto-numbered name from nextSetName
      passes through the same check. */
   var dupSet = null;
-  for (var di = 0; di < Store.data.sets.length; di++) {
-    var ds = Store.data.sets[di];
-    if (editingSetId && ds.id === editingSetId) continue;
-    if (String(ds.name || '').trim().toLowerCase() === name.toLowerCase()) { dupSet = ds; break; }
+  /* (Item 20, Option D-A, 2026-11-25, Tanner): an edit that keeps the
+     set's OWN name passes silently. The guard's quarrel is with TAKING
+     a name, not with HOLDING one — the import's duplicate piles (now
+     numbered at the door, item 20-C) made every innocent edit of a
+     same-name set demand an overwrite decision against a different
+     set. The comparison is the guard's own: trimmed, case-insensitive,
+     against the edited set's stored name. Renaming INTO another set's
+     name still runs the scan below and walls exactly as before; a new
+     set has no own name and is unchanged. */
+  var keepsOwnName = false;
+  if (editingSetId) {
+    for (var oi = 0; oi < Store.data.sets.length; oi++) {
+      if (Store.data.sets[oi].id === editingSetId) {
+        keepsOwnName = String(Store.data.sets[oi].name || '').trim().toLowerCase() === name.toLowerCase();
+        break;
+      }
+    }
   }
-  if (dupSet) {
+  if (!keepsOwnName) {
+    for (var di = 0; di < Store.data.sets.length; di++) {
+      var ds = Store.data.sets[di];
+      if (editingSetId && ds.id === editingSetId) continue;
+      if (String(ds.name || '').trim().toLowerCase() === name.toLowerCase()) { dupSet = ds; break; }
+    }
+  }
+  /* (Item 16, 2026-11-25): overwriteConfirmed === true means this save
+     is the re-entry from confirmSaveOverSet's "Delete it and save mine"
+     — the bearer named there has already been purged, and the user has
+     already answered the duplicate question for THIS save, so the
+     guard stands down and the save completes in the same pass. The
+     strict === true is load-bearing: btn-save-set's onclick passes the
+     click event in as the first argument, and a truthy event must
+     never disarm the guard. Any FURTHER same-name bearers (an import
+     can plant many) are left standing — clearing them is a policy
+     call, not this guard's. */
+  if (dupSet && overwriteConfirmed !== true) {
     /* hp (Q270, Tanner 2026-11-21): the warning NAMES the line the
        living set sits on — the old modal never said where it was, so a
        name deleted on one line still blocked on another — and offers
@@ -5101,7 +5278,10 @@ function saveSetForm() {
     if (!pendingCoords) { toast('No location for this set.'); return; }
     stageComposerNote(); /* ga: file any note still in the box before building the record */
     var ns = {
-      id: uid('s'), name: name,
+      /* (2026-11-25): the new set adopts the provisional memo owner
+         as its own id, so memos recorded on the New Set form are
+         already filed under it — no re-keying pass. */
+      id: pendingSetMemoId || uid('s'), name: name,
       lat: pendingCoords.lat, lng: pendingCoords.lng, county: null,
       trapType: nrt.t,
       trapMaker: ntd.trapMaker,
@@ -5135,6 +5315,7 @@ function saveSetForm() {
     ns.lineId = activeLineId();
     if (typeof Unlock !== 'undefined' && !Unlock.gateNewSet(ns.lineId)) return;
     Store.data.sets.push(ns);
+    pendingSetMemoId = null; /* adopted — the staged memos' owner is a real set now */
     recordActivity(ns, 'created', ['Set created']); /* Q272: the trail's first entry */
     setFormSaved = true; /* (2026-11-24): this close is a save — the settle hook stands down */
     Store.save(); refreshMarkers(); closeSheets();
@@ -5222,8 +5403,9 @@ function openSetDetail(id) {
   if (!s) return;
   detailSetId = id;
   $('sd-name').textContent = s.name;
-  /* Q103: quiet tap-to-copy coords at the bottom, only when the Privacy toggle is on */
-  wireCoordsBottom('sd-coords-bottom', showCoords() ? fmtCoords(s.lat, s.lng) : '');
+  /* Q103: quiet coords at the bottom, only when the Privacy toggle is on.
+     Item 14: display only — no tap-to-copy (see showCoordsBottom). */
+  showCoordsBottom('sd-coords-bottom', showCoords() ? fmtCoords(s.lat, s.lng) : '');
   var st = normStatus(s.status);
   /* Q103d: no county badge — the county rides on the Location row instead. */
   $('sd-badges').innerHTML =
@@ -6427,11 +6609,17 @@ var Memo = {
   /* Log-a-catch attach: pass onSaved to learn the memo's id when it lands,
      so the caller can link it to the catch being logged. boxId/editable
      (Q71) say which memo list refreshes when the save lands. */
-  toggle: function (setId, btn, onSaved, boxId, editable) {
+  /* ownerKey (2026-11-25): the memo's owner field on its IDB record —
+     'setId' for sets and catches (the default, unchanged), 'markerId'
+     for sign markers, whose form now carries the same memo treatment.
+     The recording mechanism is one and the same; only the owner key
+     on the record differs. */
+  toggle: function (setId, btn, onSaved, boxId, editable, ownerKey) {
     var self = this;
     if (this.recording) { this.stop(btn); return; }
     self._boxId = boxId || 'sd-memos';
     self._editable = editable !== false;
+    self._ownerKey = ownerKey || 'setId';
     if (!this.supported()) { toast('Voice memos are not supported in this browser.'); return; }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
       self.chunks = [];
@@ -6449,17 +6637,22 @@ var Memo = {
         if (!blob.size) { self._saving = false; toast('Empty recording — nothing saved.'); return; }
         var memoId = uid('m');
         var memoTranscript = (self._transcript || '').trim();
-        IDB.put('memos', {
-          id: memoId, setId: self.targetSetId, mime: blob.type,
+        var memoRec = {
+          id: memoId, mime: blob.type,
           blob: blob, createdAt: Date.now(),
           transcript: memoTranscript
-        }).then(function () {
+        };
+        memoRec[self._ownerKey] = self.targetSetId;
+        IDB.put('memos', memoRec).then(function () {
           self._saving = false;
-          if (!forCatch) appendTranscriptToSetNotes(self.targetSetId, memoTranscript);
-          renderMemos(self.targetSetId, self._boxId, self._editable);
+          /* The transcript-to-notes append is a set behavior; marker
+             memos (ownerKey 'markerId') never transcribe into notes —
+             transcripts stay retired app-wide regardless. */
+          if (!forCatch && self._ownerKey === 'setId') appendTranscriptToSetNotes(self.targetSetId, memoTranscript);
+          renderMemos(self.targetSetId, self._boxId, self._editable, self._ownerKey);
           toast(forCatch
             ? 'Voice memo saved — it will attach to this catch.'
-            : (memoTranscript ? 'Voice memo saved — transcript added to notes.' : 'Voice memo saved.'));
+            : (memoTranscript && self._ownerKey === 'setId' ? 'Voice memo saved — transcript added to notes.' : 'Voice memo saved.'));
           if (onSaved) { try { onSaved(memoId); } catch (e) { /* noop */ } }
         }).catch(function () { self._saving = false; toast('Could not save the memo.'); });
       };
@@ -6505,9 +6698,13 @@ function fmtDur(sec) {
   sec = Math.max(0, Math.round(sec));
   return Math.floor(sec / 60) + ':' + ('0' + (sec % 60)).slice(-2);
 }
-function renderMemos(setId, boxId, editable) {
+function renderMemos(setId, boxId, editable, ownerKey) {
   var box = $(boxId || 'sd-memos');
   if (!box) return;
+  /* ownerKey (2026-11-25): which IDB field names the owner — 'setId'
+     (default) or 'markerId' for sign markers; the card rendering is
+     the family's one treatment either way. */
+  var oKey = ownerKey || 'setId';
   /* memo id -> the catch it was recorded for, so linked memos say which
      catch they're on */
   var memoLog = {};
@@ -6515,7 +6712,7 @@ function renderMemos(setId, boxId, editable) {
     logMemoIds(l).forEach(function (mid) { memoLog[mid] = l; });
   });
   IDB.all('memos').then(function (all) {
-    var memos = all.filter(function (m) { return m.setId === setId; })
+    var memos = all.filter(function (m) { return m[oKey] === setId; })
       .sort(function (a, b) { return a.createdAt - b.createdAt; });
     /* Q179 (2026-10-08): Tanner — no "No memos yet." placeholder. Empty is
        implied; the list simply appears below the Record button when memos
@@ -6540,7 +6737,7 @@ function renderMemos(setId, boxId, editable) {
           'Delete', function () {
             IDB.del('memos', m.id).then(function () {
               if (memoURLs[m.id]) { URL.revokeObjectURL(memoURLs[m.id]); delete memoURLs[m.id]; }
-              renderMemos(setId, boxId, editable);
+              renderMemos(setId, boxId, editable, ownerKey);
             });
           });
       }
@@ -6628,6 +6825,24 @@ function renderMemos(setId, boxId, editable) {
   });
 }
 
+/* (2026-11-25): delete every memo recorded under a provisional form
+   owner (a New Set's pendingSetMemoId) — the form closed without
+   saving, so the owner will never exist and the recordings must not
+   persist anywhere. The catch-log's deletePendingLogMemos is the
+   same discipline for its own staging. */
+function dropMemosForOwner(ownerId, ownerKey) {
+  if (!ownerId) return;
+  var key = ownerKey || 'setId';
+  IDB.all('memos').then(function (all) {
+    all.forEach(function (m) {
+      if (m[key] === ownerId) {
+        if (memoURLs[m.id]) { URL.revokeObjectURL(memoURLs[m.id]); delete memoURLs[m.id]; }
+        IDB.del('memos', m.id);
+      }
+    });
+  }).catch(function () { /* noop */ });
+}
+
 /* Voice memos attached to a catch (log.memoIds). The mic-icon flag on a catch row
    notes that a memo was left; tapping it plays the recording right there.
    Audio elements are built lazily — one IDB fetch per memo, URLs cached. */
@@ -6682,7 +6897,7 @@ var histUI = { q: '', disp: 'all', view: 'date', season: 'this', collapsed: {}, 
 /* Q6: the old History report filters (date range + dimension chips) moved to
    Settings. This independent state drives the catches CSV export only —
    it shares the same criteria but never affects the History tab. */
-var exportUI = { from: '', to: '', fSetType: [], fTrapType: [], fLure: [], fBait: [], fUrine: [], fOther: [], fStatus: [] };
+var exportUI = { from: '', to: '', fSetType: [], fTrapType: [], fSpecies: [], fLure: [], fBait: [], fUrine: [], fVisual: [], fAudio: [], fOther: [], fStatus: [] };
 /* Q174 (2026-10-08): multi-select checklist sheets — which dimension's sheet
    is open (null when closed). */
 var msOpenKey = null;
@@ -7619,10 +7834,17 @@ function openBulkEdit() {
       '<input type="text" id="be-' + f.field + '" autocomplete="off" placeholder="(no change)">' +
       '<div class="suggest" id="be-' + f.field + '-suggest"></div></label>';
   }).join('');
-  showModal('<h3>Edit all ' + sets.length + ' sets</h3>' +
+  /* Item 21 (2026-11-25): docked — 861px of rows in a 705px card
+     buried Review changes below the fold on open. The sheet-dress
+     stays (added below, as before); .form-dock's padding wins by
+     standing later in styles.css. */
+  showDockedModal('<div class="modal-scroll">' +
+    '<h3>Edit all ' + sets.length + ' sets</h3>' +
     '<p>Set as many fields as you want — fields you leave alone stay as they are on each set. Bait, lure, urine and visual are added to what each set already has — never taken away.</p>' + rows +
-    '<div class="btn-row" style="margin-top:14px"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
-    '<button class="btn-primary" id="m-ok" type="button">Review changes</button></div>');
+    '</div>' +
+    '<div class="modal-actions">' +
+    '<div class="btn-row"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
+    '<button class="btn-primary" id="m-ok" type="button">Review changes</button></div></div>');
   $('modal').classList.add('sheet-dress'); /* gx: standard sheet dress for the bulk family */
   fields.forEach(function (f) {
     comboAttach('be-' + f.field, 'be-' + f.field + '-suggest',
@@ -7934,17 +8156,32 @@ function logStatus(l) {
   var s = l.setId ? getSet(l.setId) : null;
   return s ? normStatus(s.status) : '';
 }
+/* 2026-11-25 (Tanner): Species joins the family, and Visual + Audio
+   complete the attractants — Bait, Lure, Urine, Visual, Audio, Other
+   are all filterable now. */
 var DIM_DEFS = [
   { key: 'fSetType', field: 'setType', label: 'Set Type' },
   { key: 'fTrapType', field: 'trapType', label: 'Trap Type' },
+  { key: 'fSpecies', field: '__species', label: 'Species' },
   { key: 'fLure', field: 'lure', label: 'Lure' },
   { key: 'fBait', field: 'bait', label: 'Bait' },
   { key: 'fUrine', field: 'urine', label: 'Urine' },
+  { key: 'fVisual', field: 'visual', label: 'Visual' },
+  { key: 'fAudio', field: 'audio', label: 'Audio' },
   { key: 'fOther', field: 'other', label: 'Other Attractants' },
   { key: 'fStatus', field: '__status', label: 'Trap Status' }
 ];
+/* The Species column of the catches report (buildCatchesReport): an
+   Other-event log with no species entered prints its subtype label.
+   The Species filter reads through this same helper, so what a man
+   filters is exactly what the printed column shows. */
+function catchSpeciesLabel(l) {
+  return (l.otherType && !l.species) ? (OTHER_LABELS[l.otherType] || 'Other event') : (l.species || '');
+}
 function dimValue(l, def) {
-  return def.field === '__status' ? logStatus(l) : (l[def.field] || '');
+  if (def.field === '__status') return logStatus(l);
+  if (def.field === '__species') return catchSpeciesLabel(l);
+  return l[def.field] || '';
 }
 function dimLabel(def, v) {
   if (!v) return def.field === '__status' ? '(deleted set)' : '(none)';
@@ -8018,7 +8255,7 @@ function countExportFilters() {
   var f = exportUI, n = 0;
   if (f.from) n++;
   if (f.to) n++;
-  n += f.fSetType.length + f.fTrapType.length + f.fLure.length + f.fBait.length + f.fUrine.length + f.fOther.length + f.fStatus.length;
+  n += f.fSetType.length + f.fTrapType.length + f.fSpecies.length + f.fLure.length + f.fBait.length + f.fUrine.length + f.fVisual.length + f.fAudio.length + f.fOther.length + f.fStatus.length;
   return n;
 }
 function exportFiltersActive() { return countExportFilters() > 0; }
@@ -8099,7 +8336,7 @@ function renderExportFilterBar() {
 }
 function clearExportFilters() {
   exportUI.from = ''; exportUI.to = '';
-  exportUI.fSetType = []; exportUI.fTrapType = []; exportUI.fLure = []; exportUI.fBait = []; exportUI.fUrine = []; exportUI.fOther = []; exportUI.fStatus = [];
+  exportUI.fSetType = []; exportUI.fTrapType = []; exportUI.fSpecies = []; exportUI.fLure = []; exportUI.fBait = []; exportUI.fUrine = []; exportUI.fVisual = []; exportUI.fAudio = []; exportUI.fOther = []; exportUI.fStatus = [];
 }
 
 function renderHistChips() {
@@ -8866,9 +9103,11 @@ function renderSeasonsGap(d) {
     if (extra) h += extra;
     secs.push(h);
   }
-  var tag = (Store.data.trapTag || '').trim();
-  sec(1, tag
-    ? '<p class="dim">Your trap tag: <strong>' + esc(tag) + '</strong></p>'
+  var tags = trapTagEntries();
+  sec(1, tags.length
+    ? '<p class="dim">Your trap tag' + (tags.length > 1 ? 's' : '') + ':</p>' + tags.map(function (t) {
+        return '<p class="dim" style="margin-top:2px"><strong>' + esc(t.text) + '</strong></p>';
+      }).join('')
     : '<p class="dim">You haven\'t saved your trap tag yet — add it in Paperwork, under My Trap Tag, and it will show here with this rule.</p>');
   sec(5); sec(10); sec(11); sec(12); sec(6); sec(7);
   if (!secs.length) { box.innerHTML = ''; box.hidden = true; return; }
@@ -9146,8 +9385,12 @@ function showSpeciesDetail(name) {
   if (sp.domestic) html += '<p class="dim">' + esc(domesticNotes()) + '</p>';
   else if (sp.notes) html += '<p class="dim">' + esc(sp.notes) + '</p>';
   html += '<p class="reminder-tag">' + esc(REMINDER_LINE) + ' ' + esc(d.disclaimer || '') + '</p>';
-  html += '<button class="btn-secondary" id="m-close" type="button" style="width:100%;margin-top:10px">Close</button>';
-  showModal(html);
+  /* Item 21 (2026-11-25): docked — this reader's content runs to
+     1301px in a 707px card and Close is the modal's ONLY exit (Q105:
+     no backdrop dismissal), so the exit joins the .modal-actions
+     footer instead of the foot of the scroll. */
+  showDockedModal('<div class="modal-scroll">' + html + '</div>' +
+    '<div class="modal-actions"><button class="btn-secondary" id="m-close" type="button" style="width:100%">Close</button></div>');
   $('m-close').onclick = closeModal;
 }
 
@@ -9163,7 +9406,7 @@ function isLicenseWalletPhoto(p, lid, firstId) {
      wallet. The wallet's taxonomy now matches the export and gallery
      classifiers, which already test both fields. Display-side only:
      no data is moved or rewritten. */
-  if (!p || p.setId || p.logId || p.landownerId || p.tripId || p.markerId) return false;
+  if (!p || p.setId || p.logId || p.landownerId || p.tripId || p.markerId || p.trapTagId) return false;
   return (p.lineId || firstId) === lid;
 }
 /* Tanner 2026-10-07: trips live on the Paperwork tab, not in a modal.
@@ -9181,12 +9424,31 @@ function isLicenseWalletPhoto(p, lid, firstId) {
    Old GPS notes read "GPS track \u00b7 0:00 \u00b7 passed 29 of 34 active sets" \u2014
    the kind now rides on the collapsed row itself and the elapsed stamp
    was never trustworthy (the timer stalls while the phone sleeps), so
-   both come off here; the stored note itself is not rewritten. */
+   both come off here; the stored note itself is not rewritten.
+   2026-11-25 (Tanner): a cleaned note that is exactly the retired
+   coverage sentence displays as no note at all (noteIsCoverageSentence). */
+/* The prefix cleaning for a GPS trip's stored note: the auto-filed
+   kind word and the long-dead elapsed stamp come off. Shared by the
+   Paperwork display (tripDetail) and the mileage CSV (buildMileageRows). */
+function cleanedGpsNote(tr) {
+  var n = (tr.notes || '').trim();
+  n = n.replace(/^GPS track\s*\u00b7\s*/, '');
+  n = n.replace(/^\d+:\d{2}(:\d{2})?\s*\u00b7\s*/, '');
+  return n;
+}
+/* 2026-11-25 (Tanner): the auto-filed coverage sentence is neither
+   filed on new trips (tracking.js saveToMileage) nor shown/exported
+   for old ones. It counts as auto-coverage ONLY when the cleaned note
+   is the sentence and nothing else — anything a user actually wrote,
+   even a note that merely begins with the sentence, survives whole. */
+function noteIsCoverageSentence(n) {
+  return /^passed \d+ of \d+ active sets$/i.test((n || '').trim());
+}
 function tripDetail(tr) {
   var n = (tr.notes || '').trim();
   if (tr.source === 'gps-track') {
-    n = n.replace(/^GPS track\s*\u00b7\s*/, '');
-    n = n.replace(/^\d+:\d{2}(:\d{2})?\s*\u00b7\s*/, '');
+    n = cleanedGpsNote(tr);
+    if (noteIsCoverageSentence(n)) return '';
     if (n) n = n.charAt(0).toUpperCase() + n.slice(1);
   }
   return n;
@@ -9470,6 +9732,205 @@ function renderPaperworkMileage() {
    tag number, carrying the state's deadline text. No badges, counters,
    or mentions anywhere else in the app. The whole card hides when Tag
    records are off — stored records are untouched. */
+/* ================= My Trap Tag stack (Paperwork, 2026-11-25) =================
+   Tanner: the single trap-tag field had no Save button — it
+   committed silently on change — and one field assumed one tag
+   wording, while his iron can carry different wordings at once
+   (name & address on some traps, a state ID number on others).
+   Now: a stack of free-text rows under one explicit Save (the
+   btn-primary section-commit pattern, e.g. the landowner Save),
+   the app's standard toast as the confirmation. Rows STAGE in
+   memory (trapTagStaged) until Save — nothing reaches Store.data
+   before it, pane re-renders rebuild from the staged copy so
+   work is never clobbered, and a reload drops unsaved staging
+   exactly as it drops any unsaved form. Row removal follows the
+   stacked-row law: 2+ rows carry the labeled Remove pill; a lone
+   row carries the clear × (ensureClearInput) instead. The stack
+   cap follows the attractant stack's convention: 6 rows
+   (TRAPTAG_MAX_ROWS = ATTR_MAX_ROWS). Each row can carry photos
+   of the actual tag: IDB 'photos' records, kind 'traptag', keyed
+   by trapTagId — staged with the row, committed and reconciled
+   at Save (a removed row's photos are deleted with it, Q38: no
+   orphans), and excluded from the JSON backup exactly like
+   license photos (they ride the media ZIP pack under their own
+   'Trap Tags' branch instead). */
+var TRAPTAG_MAX_ROWS = 6;
+var trapTagStaged = null; /* null = not staged; else [{id, text, photos:[{photoId, blob}]}] */
+var trapTagPhotoTarget = -1;
+
+function trapTagEntries() {
+  var list = (Store.data && Array.isArray(Store.data.trapTags)) ? Store.data.trapTags : [];
+  var out = [];
+  list.forEach(function (e) {
+    if (e && typeof e.text === 'string' && e.text.trim()) out.push({ id: e.id, text: e.text.trim() });
+  });
+  return out;
+}
+
+function stageTrapTags() {
+  trapTagStaged = trapTagEntries().map(function (e) { return { id: e.id, text: e.text, photos: [] }; });
+  if (!trapTagStaged.length) trapTagStaged = [{ id: uid('tag'), text: '', photos: [] }];
+  renderTrapTagRows();
+  IDB.all('photos').then(function (all) {
+    if (!trapTagStaged) return;
+    var changed = false;
+    (all || []).forEach(function (p) {
+      if (!p || p.kind !== 'traptag' || !p.trapTagId || !p.blob) return;
+      for (var i = 0; i < trapTagStaged.length; i++) {
+        if (trapTagStaged[i].id === p.trapTagId) { trapTagStaged[i].photos.push({ photoId: p.id, blob: p.blob }); changed = true; break; }
+      }
+    });
+    if (changed) renderTrapTagRows();
+  });
+}
+
+function renderTrapTagSection() {
+  if (trapTagStaged === null) stageTrapTags();
+  else renderTrapTagRows();
+}
+
+function renderTrapTagRows() {
+  var box = $('traptag-rows');
+  if (!box || !trapTagStaged) return;
+  box.innerHTML = '';
+  var multi = trapTagStaged.length > 1;
+  trapTagStaged.forEach(function (row, idx) {
+    var wrap = document.createElement('div');
+    wrap.className = 'attr-row';
+    var sw = document.createElement('div');
+    sw.className = 'suggest-wrap';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = row.text;
+    input.placeholder = 'Name & address, or state ID number';
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('aria-label', 'Trap tag');
+    input.addEventListener('input', function () { row.text = this.value; });
+    sw.appendChild(input);
+    wrap.appendChild(sw);
+    /* Stacked-row law (2026-11-25): a row in a stack of 2+ carries
+       ONLY Remove; the clear × belongs to the lone row, which is a
+       single field. The render rebuilds on every add/remove, so
+       the swap rides it both ways. */
+    if (!multi) ensureClearInput(input, { noneFace: false });
+    if (multi) {
+      var rm = document.createElement('button');
+      rm.type = 'button'; rm.className = 'remove-pill'; rm.textContent = 'Remove';
+      rm.setAttribute('aria-label', 'Remove this tag');
+      rm.onclick = function () { trapTagStaged.splice(idx, 1); renderTrapTagRows(); };
+      wrap.appendChild(rm);
+    }
+    box.appendChild(wrap);
+    var prow = document.createElement('div');
+    prow.className = 'traptag-photos';
+    prow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px';
+    row.photos.forEach(function (ph, pi) {
+      var img = document.createElement('img');
+      img.className = 'photo-thumb'; img.alt = 'Trap tag photo';
+      img.src = URL.createObjectURL(ph.blob);
+      img.title = 'Tap to enlarge';
+      img.onclick = function () { openTrapTagPhotoViewer(idx, pi); };
+      prow.appendChild(img);
+    });
+    var add = document.createElement('button');
+    add.type = 'button'; add.className = 'btn-small btn-ghost'; add.textContent = '+ Add a photo';
+    add.onclick = function () { trapTagPhotoTarget = idx; var fi = $('traptag-photo-input'); if (fi) fi.click(); };
+    prow.appendChild(add);
+    box.appendChild(prow);
+  });
+  var addBtn = $('btn-traptag-add');
+  if (addBtn) addBtn.style.display = trapTagStaged.length >= TRAPTAG_MAX_ROWS ? 'none' : '';
+}
+
+/* A staged tag photo in the standard viewer shape — zoom, Save
+   Photo — with Remove behind the marker photos' confirm wording;
+   removing only unstages (nothing reaches IDB until Save). */
+function openTrapTagPhotoViewer(rowIdx, photoIdx) {
+  var row = trapTagStaged && trapTagStaged[rowIdx];
+  var ph = row && row.photos[photoIdx];
+  if (!ph) return;
+  var url = URL.createObjectURL(ph.blob);
+  showModal('<h3 style="margin-top:0">Trap tag photo</h3>' +
+    '<img src="' + url + '" style="width:100%;border-radius:8px" alt="Trap tag photo">' +
+    '<div class="btn-row" style="margin-top:10px">' +
+    '<button class="btn-danger" id="m-tt-del" type="button">Remove</button>' +
+    '<button class="btn-secondary" id="m-tt-save" type="button">Save Photo</button>' +
+    '<button class="btn-secondary" id="m-close" type="button">Close</button></div>');
+  wirePhotoZoom($('modal-card'));
+  $('m-close').onclick = function () { URL.revokeObjectURL(url); closeModal(); };
+  $('m-tt-save').onclick = function () { sharePhotoFile(ph.blob, 'opossum-foot-trap-tag'); };
+  $('m-tt-del').onclick = function () {
+    confirmModal('Remove this photo?', 'It will not be saved with this tag.', 'Remove', function () {
+      row.photos.splice(photoIdx, 1);
+      URL.revokeObjectURL(url);
+      renderTrapTagRows();
+    });
+  };
+}
+
+function saveTrapTags() {
+  if (!trapTagStaged) return;
+  var kept = trapTagStaged.filter(function (r) { return r.text.trim() || r.photos.length; });
+  var entries = kept.map(function (r) { return { id: r.id, text: r.text.trim() }; });
+  var keptIds = {};
+  entries.forEach(function (e) { keptIds[e.id] = true; });
+  Store.data.trapTags = entries;
+  Store.save();
+  IDB.all('photos').then(function (all) {
+    var ops = [];
+    var existing = (all || []).filter(function (p) { return p && p.kind === 'traptag'; });
+    existing.forEach(function (p) { if (!keptIds[p.trapTagId]) ops.push(IDB.del('photos', p.id)); });
+    kept.forEach(function (r) {
+      var stagedIds = {};
+      r.photos.forEach(function (ph) { if (ph.photoId) stagedIds[ph.photoId] = true; });
+      existing.forEach(function (p) {
+        if (p.trapTagId === r.id && !stagedIds[p.id]) ops.push(IDB.del('photos', p.id));
+      });
+      r.photos.forEach(function (ph) {
+        if (!ph.photoId) {
+          ph.photoId = uid('photo');
+          ops.push(IDB.put('photos', { id: ph.photoId, kind: 'traptag', trapTagId: r.id, lineId: activeLineId(), blob: ph.blob, createdAt: Date.now() }));
+        }
+      });
+    });
+    return Promise.all(ops);
+  }).then(function () {
+    trapTagStaged = null;
+    renderTrapTagSection();
+    toast(entries.length > 1 ? 'Trap tags saved.' : (entries.length ? 'Trap tag saved.' : 'Trap tag cleared.'));
+  });
+}
+
+function wireTrapTagSection() {
+  var add = $('btn-traptag-add');
+  if (add) add.onclick = function () {
+    if (!trapTagStaged) stageTrapTags();
+    if (trapTagStaged.length >= TRAPTAG_MAX_ROWS) return;
+    trapTagStaged.push({ id: uid('tag'), text: '', photos: [] });
+    renderTrapTagRows();
+    var inputs = $('traptag-rows').querySelectorAll('input[type="text"]');
+    var last = inputs[inputs.length - 1];
+    if (last) try { last.focus({ preventScroll: true }); } catch (e) { last.focus(); }
+  };
+  var save = $('btn-traptag-save');
+  if (save) save.onclick = saveTrapTags;
+  var file = $('traptag-photo-input');
+  if (file) file.onchange = function () {
+    var files = Array.prototype.slice.call(this.files || []);
+    this.value = '';
+    var row = (trapTagStaged && trapTagPhotoTarget >= 0) ? trapTagStaged[trapTagPhotoTarget] : null;
+    trapTagPhotoTarget = -1;
+    if (!row || !files.length) return;
+    var pending = files.length;
+    files.forEach(function (f) {
+      downscalePhoto(f, function (blob) {
+        if (blob) row.photos.push({ photoId: null, blob: blob });
+        if (--pending === 0) renderTrapTagRows();
+      });
+    });
+  };
+}
+
 function renderMyTags() {
   var card = $('setsec-mytags');
   var box = $('mytags-list');
@@ -9818,7 +10279,13 @@ function openLandownerForm(id) {
   if (isNew) lo = { id: newLandownerId(), lineId: activeLineId(), name: '', phones: '', notes: '', boundaryNote: '', createdAt: Date.now() };
   loFormId = lo.id;
   pendingLoPhotos = [];
-  showModal(
+  /* Item 21 (2026-11-25): docked — fields scroll in .modal-scroll,
+     Cancel/Save (and Delete, on edit) live in the .modal-actions
+     footer, always in reach. This form was the field finding: at
+     798/860px of content in a 707px card its bar sat clipped at the
+     card's fold. */
+  showDockedModal(
+    '<div class="modal-scroll">' +
     '<h3>' + (isNew ? 'Add Landowner' : 'Edit Landowner') + '</h3>' +
     '<label class="field" for="lo-name">Name <span class="req">*</span></label>' +
     '<input id="lo-name" type="text" value="' + esc(lo.name) + '" placeholder="Who owns the ground">' +
@@ -9834,11 +10301,14 @@ function openLandownerForm(id) {
     '<label class="field">Permission slips</label>' +
     '<button class="btn-secondary" id="lo-slip-btn" type="button">+ Add permission slip photo</button>' +
     '<div class="lic-grid" id="lo-slip-grid"></div>' +
-    '<div class="btn-row" style="margin-top:14px"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
+    '</div>' +
+    '<div class="modal-actions">' +
+    '<div class="btn-row"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
     '<button class="btn-primary" id="lo-save" type="button">Save landowner</button></div>' +
     /* Tanner 2026-10-07 (db): card buttons are gone — deleting a landowner
        happens here in the Edit screen. New landowners have nothing to delete. */
-    (isNew ? '' : '<button class="btn-danger" id="lo-del" type="button" style="margin-top:10px;width:100%">Delete landowner</button>')
+    (isNew ? '' : '<button class="btn-danger" id="lo-del" type="button" style="margin-top:10px;width:100%">Delete landowner</button>') +
+    '</div>'
   );
   $('m-cancel').onclick = closeModal;
   /* Tanner 2026-09-30: phone field takes digits only (commas between
@@ -9969,23 +10439,37 @@ function exportCatches() {
      they select, regardless of the History tab's quick filters. */
   var list = exportFilteredLogs();
   if (!list.length) { toast('No catches match the current filters.'); return; }
+  var rep = buildCatchesReport(list);
+  downloadCSV(rep.fname, rep.rows);
+  toast('Catches CSV downloaded (' + list.length + (list.length === total ? '' : ' of ' + total) + ').');
+}
+/* The catches report as {fname, rows} — the single generator behind both
+   the Export catches button and the all-reports ZIP (item 17), so the
+   file inside the ZIP is the very file this button downloads. */
+function buildCatchesReport(list) {
   var ec = exportCoords();
   var rows = [['Date', 'Time', 'Season', 'Set', 'Species', 'Count', 'Disposition', 'Set type', 'Trap type', 'Trap detail', 'Weather', 'Bait', 'Lure', 'Urine', 'Visual', 'Audio', 'Other Attractants', 'County'].concat(ec ? ['Latitude', 'Longitude'] : []).concat(['Notes'])];
   list.forEach(function (l) {
     /* Other events with no species entered show the subtype label in the
        Species column — no format change needed. */
-    var spCol = (l.otherType && !l.species) ? (OTHER_LABELS[l.otherType] || 'Other event') : l.species;
+    var spCol = catchSpeciesLabel(l);
     /* Trap detail: snapshot on the log, falling back to the set's current details for older logs. */
     var det = l.trapDetail || (function () { var s2 = l.setId ? getSet(l.setId) : null; return s2 ? trapDetailSummary(s2) : ''; })();
     rows.push([l.date, l.time || '', l.seasonYear || seasonYearOf(l.date), l.setName, spCol, normCount(l),
       dispLabel(l.disposition), l.setType, l.trapType, det, weatherText(l.weather), joinAttr(l.bait), joinAttr(l.lure), joinAttr(l.urine), joinAttr(l.visual), joinAttr(l.audio), joinAttr(l.other), l.county].concat(ec ? [l.lat, l.lng] : []).concat([l.notes]));
   });
   var filt = exportFiltersActive();
-  downloadCSV('opossum-foot-catches-' + lineFileSlug() + '-' + todayISO() + (filt ? '-filtered' : '') + '.csv', rows);
-  toast('Catches CSV downloaded (' + list.length + (list.length === total ? '' : ' of ' + total) + ').');
+  return { fname: 'opossum-foot-catches-' + lineFileSlug() + '-' + todayISO() + (filt ? '-filtered' : '') + '.csv', rows: rows };
 }
 function exportSets() {
   if (!activeSets().length) { toast('No sets to export yet.'); return; }
+  var rep = buildSetsReport();
+  downloadCSV(rep.fname, rep.rows);
+  toast('Sets CSV downloaded.');
+}
+/* The sets report as {fname, rows} — the single generator behind both
+   the Export sets button and the all-reports ZIP (item 17). */
+function buildSetsReport() {
   /* Q47: one set = one trap — the Trap count column is gone. Q26: Other
      Attractants column after Urine; lists join with ' | '. */
   var ec2 = exportCoords();
@@ -9993,8 +10477,48 @@ function exportSets() {
   activeSets().forEach(function (s) {
     rows.push([s.name].concat(ec2 ? [s.lat, s.lng] : []).concat([s.county, s.setType, s.trapType, (s.trapSpring || ''), (s.trapSize || ''), (s.snareDia || ''), (s.snareLock || ''), (s.snareLen || ''), (s.snarePurpose || ''), (s.trapModel || ''), weatherText(s.weather), joinAttr(s.bait), joinAttr(s.lure), joinAttr(s.urine), joinAttr(s.visual), joinAttr(s.audio), joinAttr(s.other), s.status, s.dateSet, s.notes, (s.trapMaker || ''), (s.panSize || ''), (s.jawShape || ''), (s.jawClose || ''), (s.trapMods || []).join(' | '), missingReasonLabel(s.missingReason || ''), (s.missingDetail || '')]));
   });
-  downloadCSV('opossum-foot-sets-' + lineFileSlug() + '-' + todayISO() + '.csv', rows);
-  toast('Sets CSV downloaded.');
+  return { fname: 'opossum-foot-sets-' + lineFileSlug() + '-' + todayISO() + '.csv', rows: rows };
+}
+/* Item 17 (2026-11-25, Tanner): "Add it — one button, one ZIP with all
+   three reports." The ZIP's files come from the very builders the
+   individual buttons use, serialized by the same csvFileText, so each
+   file inside is byte-identical to its single download. The catches
+   report honors the Reports filters; sets and mileage always include
+   everything, exactly as their own buttons do. A report with nothing
+   in it is left out and named in the toast; if all three are empty,
+   no ZIP is built. Delivery rides deliverFileNative like the media
+   ZIP, so a native share failure surfaces the standing fail toast. */
+function exportAllReports() {
+  var parts = [], missing = [];
+  var logs = activeLogs();
+  var filtered = logs.length ? exportFilteredLogs() : [];
+  if (filtered.length) parts.push({ label: 'catches', rep: buildCatchesReport(filtered) });
+  else missing.push(logs.length ? 'catches (none match the filters)' : 'catches');
+  if (activeSets().length) parts.push({ label: 'sets', rep: buildSetsReport() });
+  else missing.push('sets');
+  var nTrips = 0;
+  (Store.data.lines || []).forEach(function (ln) { nTrips += tripsForLine(ln.id).length; });
+  if (nTrips) parts.push({ label: 'mileage', rep: buildMileageReport() });
+  else missing.push('mileage');
+  if (!parts.length) { toast('No reports to export yet — no catches, sets, or trips.'); return; }
+  var entries = parts.map(function (p) {
+    return { path: p.rep.fname, blob: new Blob([csvFileText(p.rep.rows)], { type: 'text/csv;charset=utf-8' }), when: Date.now() };
+  });
+  toast('Building your reports file…');
+  buildZipBlob(entries).then(function (zip) {
+    var fname = 'opossum-foot-reports-' + todayISO() + '.zip';
+    var names = parts.map(function (p) { return p.label; }).join(', ');
+    var doneMsg = 'Reports ZIP downloaded (' + names + ').' +
+      (missing.length ? ' Not included — nothing to report: ' + missing.join(', ') + '.' : '');
+    if (deliverFileNative(zip, fname, 'Opossum Foot reports', doneMsg)) return;
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(zip);
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
+    toast(doneMsg);
+  }).catch(function () { toast('Reports export hit a snag — your data is untouched. Try again.'); });
 }
 /* Full backup: every set and catch/log on this phone, saved as one JSON
    file in the exact shape the "Import data (JSON)" button reads back.
@@ -10192,8 +10716,12 @@ function buildMediaEntries(photos, memos) {
     } else if (p.markerId) {
       var mk = null;
       (Store.data.markers || []).forEach(function (x) { if (x.id === p.markerId) mk = x; });
-      add('Forage & Finds', mk ? (mk.name || mk.label || mk.ref || 'Marker') : 'Marker',
+      add('Forage & Finds', mk ? (mk.label || mk.name || mk.ref || 'Marker') : 'Marker',
         mk ? mk.lineId : firstLineId, p, p.blob, '');
+    } else if (p.trapTagId) {
+      var tt = null;
+      trapTagEntries().forEach(function (e) { if (e.id === p.trapTagId) tt = e; });
+      add('Trap Tags', tt ? tt.text : 'Trap tag', firstLineId, p, p.blob, '');
     } else {
       /* No set/log/trip/landowner/marker link: a license-wallet photo.
          hl (Q245): the old 'Linked site: …' index note is gone too — a
@@ -10707,8 +11235,8 @@ function applyLineTransferNow(data, srcName) {
 /* ================= fx (2026-11-15): PHOTO GALLERY =================
    Tanner: one place that shows every photo on the line, each labeled with
    what it belongs to. Every photo record already carries its link — setId
-   for set photos, logId for catches, landownerId / tripId / markerId for the
-   rest, and no link at all means the license wallet — the same taxonomy the
+   for set photos, logId for catches, landownerId / tripId / markerId /
+   trapTagId for the rest, and no link at all means the license wallet — the same taxonomy the
    media ZIP export (Q214) uses. View-only: tap opens the standard viewer
    (zoom + Save); deleting still happens on the set or catch itself. */
 function galleryPhotoLabel(p) {
@@ -10738,7 +11266,15 @@ function galleryPhotoLabel(p) {
   if (p.markerId) {
     var mk = null;
     (Store.data.markers || []).forEach(function (x) { if (x.id === p.markerId) mk = x; });
-    return { title: mk ? (mk.name || mk.label || mk.ref || 'Marker') : 'Marker', sub: 'Forage & Finds', lineId: mk ? mk.lineId : p.lineId };
+    /* A named marker leads with its own name, the kind riding the
+       sub-line; an unnamed (legacy) marker keeps the kind as its
+       title, exactly as before (2026-11-25, Tanner). */
+    return { title: mk ? (mk.label || mk.name || mk.ref || 'Marker') : 'Marker', sub: mk && mk.label ? ((mk.name || 'Marker') + ' · Forage & Finds') : 'Forage & Finds', lineId: mk ? mk.lineId : p.lineId };
+  }
+  if (p.trapTagId) {
+    var tg = null;
+    trapTagEntries().forEach(function (e) { if (e.id === p.trapTagId) tg = e; });
+    return { title: tg ? tg.text : 'Trap tag', sub: 'Trap tag', lineId: p.lineId };
   }
   return { title: p.name ? String(p.name).replace(/\.[A-Za-z0-9]+$/, '') : 'License', sub: 'Paperwork', lineId: p.lineId };
 }
@@ -11109,20 +11645,41 @@ function coordsFromMapsUrl(url) {
   return hit;
 }
 function isShortMapsLink(url) {
-  return /(maps\.app\.goo\.gl|goo\.gl)\//i.test(String(url || ''));
+  return /(maps\.app\.goo\.gl|goo\.gl|g\.page)\//i.test(String(url || ''));
 }
 /* Q185: short Maps links hide the location behind a redirect. Follow it
    (needs a connection) and read the coordinates off the final URL.
-   Q230 (2026-11-05): a plain fetch dies here — Google's Maps pages send
-   no Access-Control-Allow-Origin, so the browser rejects the fetch before
-   it ever sees the final URL. mode:'no-cors' returns an opaque response
-   whose .url (the final URL after the redirect) is still readable, and
-   that is all the parser needs. */
+   Q230 (2026-11-05) assumed mode:'no-cors' would still reveal the final
+   URL on an opaque response. In the native WKWebView it does not — the
+   opaque response reports an empty url — so on the phone every short
+   link failed (Build 96 field failure, Tanner 2026-11-25: his own
+   maps.app.goo.gl share link, which resolves to ?q=41.9498016,
+   -94.1935510, got "Could not find a location in that link.").
+   The follow now happens server-side: the tile-proxy Worker carries a
+   /resolve route (tile-proxy/worker.js) that follows the redirect and
+   returns ONLY the final URL as JSON, and the app parses coordinates
+   from that URL with the ordinary parser (so place/pin coordinates
+   keep their precedence over the @ viewport center). Until the
+   Worker's /resolve route is deployed, that leg simply fails and we
+   fall back to the old direct attempt, then to null — the caller's
+   honest "Could not find a location in that link." */
+var MAPS_RESOLVER_URL = 'https://opossumfoot.com/resolve?u=';
 function resolveMapsLink(url) {
   if (typeof fetch !== 'function') return Promise.resolve(null);
-  return fetch(url, { redirect: 'follow', mode: 'no-cors' }).then(function (res) {
-    return coordsFromMapsUrl(res && res.url ? res.url : url);
-  }).catch(function () { return null; });
+  function viaResolver() {
+    return fetch(MAPS_RESOLVER_URL + encodeURIComponent(url), { redirect: 'follow' }).then(function (res) {
+      if (!res || !res.ok) return null;
+      return res.json().catch(function () { return null; });
+    }).then(function (j) {
+      return (j && j.url) ? coordsFromMapsUrl(j.url) : null;
+    }).catch(function () { return null; });
+  }
+  function viaDirect() {
+    return fetch(url, { redirect: 'follow', mode: 'no-cors' }).then(function (res) {
+      return coordsFromMapsUrl(res && res.url ? res.url : url);
+    }).catch(function () { return null; });
+  }
+  return viaResolver().then(function (hit) { return hit || viaDirect(); });
 }
 /* The place name riding in a /place/<name>/ Maps URL, when there is one. */
 function placeNameFromMapsUrl(url) {
@@ -11383,8 +11940,153 @@ function parsePinsFile(name, text) {
   if (/\.geojson$/i.test(lower) || /\.json$/i.test(lower)) return parseGeoJsonPins(text);
   return /^\s*\{/.test(text) ? parseGeoJsonPins(text) : parseKmlPins(text);
 }
+/* The list's name as the trapper sees it in Files: the entry's base
+   name, extension off ("Takeout/Saved/Traps.csv" -> "Traps"). */
+function pinListDisplayName(entryName) {
+  var base = String(entryName || '').split('/').pop() || '';
+  return base.replace(/\.(json|geojson|csv|kml)$/i, '') || base;
+}
+/* Merge the CHOSEN lists into ONE import — the item-8 landing:
+   identical name+coords pairs (the same place saved on two lists)
+   land once; short-link rows take the same online resolve as a
+   standalone Saved CSV; then finishPinParse hands over to
+   runPinImport (gate counting, per-pin duplicate prompts, summary)
+   unchanged. Only the lists handed in contribute pins, lookup jobs,
+   or no-location names. */
+function mergePinLists(lists) {
+  var pins = [], noLoc = [], jobs = [], seen = {};
+  function addPin(pin) {
+    var key = (pin.name || '') + '|' + pin.lat.toFixed(6) + ',' + pin.lng.toFixed(6);
+    if (seen[key]) return;
+    seen[key] = 1;
+    pins.push(pin);
+  }
+  lists.forEach(function (L) {
+    L.pins.forEach(addPin);
+    L.jobs.forEach(function (job) { jobs.push(job); });
+    L.noLoc.forEach(function (x) { noLoc.push(x); });
+  });
+  if (!jobs.length) { finishPinParse(pins, noLoc); return; }
+  toast('Looking up ' + jobs.length + ' pin link' + (jobs.length === 1 ? '' : 's') + '…');
+  Promise.all(jobs.map(function (j) {
+    return resolveMapsLink(j.url).then(function (coords) {
+      if (coords) addPin({ name: j.name, lat: coords.lat, lng: coords.lng });
+      else noLoc.push(j.name || 'Unnamed place');
+    });
+  })).then(function () { finishPinParse(pins, noLoc); });
+}
+/* 2026-11-25 (item 11, Tanner's widget tap): "Add the list picker —
+   ask me which lists to bring in." His Takeout Saved folder holds
+   five lists (Favorite jobs, GCHS Historical Markers, Images, Traps,
+   Water Trails Way Finding); he wants only the chosen ones planted.
+   Shown only when an archive holds MORE THAN ONE pin-bearing list.
+   When this opens, nothing has landed and no short link has been
+   looked up; rows start unticked, and the confirm stays disabled
+   until at least one row is ticked. Cancel imports nothing. The
+   sheet is the pins family's own modal wearing the Show sheet's
+   checklist rows (.show-row), the house checklist dress. */
+function pickPinLists(lists) {
+  var rows = lists.map(function (L, i) {
+    var n = L.pins.length + L.jobs.length;
+    return '<label class="show-row"><span class="show-name">' + esc(L.name) +
+      ' <span class="show-count">' + n + (n === 1 ? ' pin' : ' pins') + '</span></span>' +
+      '<input type="checkbox" data-pinlist="' + i + '"></label>';
+  }).join('');
+  showModal(
+    '<h3>Which lists should come in?</h3>' +
+    '<p>This file holds more than one list. Tick the ones you want — only those are planted.</p>' +
+    '<div id="m-pinlists">' + rows + '</div>' +
+    '<div class="btn-row"><button class="btn-secondary" id="m-pinlists-cancel" type="button">Cancel</button>' +
+    '<button class="btn-primary" id="m-pinlists-go" type="button" disabled>Import the ticked lists</button></div>'
+  );
+  var go = $('m-pinlists-go');
+  function syncGo() {
+    var any = false;
+    $('m-pinlists').querySelectorAll('input[data-pinlist]').forEach(function (c) { if (c.checked) any = true; });
+    go.disabled = !any;
+  }
+  $('m-pinlists').querySelectorAll('input[data-pinlist]').forEach(function (cb) {
+    cb.addEventListener('change', syncGo);
+  });
+  $('m-pinlists-cancel').onclick = function () { closeModal(); };
+  go.onclick = function () {
+    var chosen = [];
+    $('m-pinlists').querySelectorAll('input[data-pinlist]').forEach(function (c) {
+      if (c.checked) chosen.push(lists[+c.getAttribute('data-pinlist')]);
+    });
+    closeModal();
+    if (chosen.length) mergePinLists(chosen);
+  };
+}
+/* 2026-11-25 (item 8): a Google Takeout download arrives as ONE .zip
+   holding every saved list — GeoJSON places files, Saved-list CSVs,
+   KML — nested under Takeout/Saved/ and kin. Walk the archive with
+   the house zip reader; identical name+coords pairs (the same place
+   saved on two lists) land once. One unreadable list never sinks the
+   rest.
+   2026-11-25 (item 11): each pin-bearing file is first parsed into
+   its OWN list and nothing is merged yet — a single-list archive
+   imports straight through, but an archive holding more than one
+   list stops at pickPinLists and only the ticked lists proceed. */
+function importTakeoutZip(buf) {
+  return readZipEntries(buf).then(function (entries) {
+    if (!entries) { toast('Could not read that pin file.'); return; }
+    var names = Object.keys(entries).filter(function (n) {
+      return /\.(json|geojson|csv|kml)$/i.test(n);
+    });
+    if (!names.length) { toast('No pins found in that archive.'); return; }
+    var lists = [];
+    var chain = Promise.resolve();
+    names.forEach(function (n) {
+      chain = chain.then(function () {
+        return entries[n].text().then(function (text) {
+          var L = { name: pinListDisplayName(n), pins: [], jobs: [], noLoc: [] };
+          try {
+            if (/\.csv$/i.test(n)) {
+              var j = savedCsvJobs(text);
+              L.pins = j.pins; L.jobs = j.jobs; L.noLoc = j.noLoc;
+            } else if (/\.kml$/i.test(n)) {
+              L.pins = parseKmlPins(text);
+            } else {
+              var gp = parseGeoJsonPins(text);
+              L.pins = Array.prototype.slice.call(gp);
+              L.noLoc = (gp.noLoc || []).slice();
+            }
+          } catch (e) { /* an unreadable list is skipped, not fatal */ }
+          /* A file is a list when it holds places in any form: pins
+             ready to plant, short links awaiting lookup, or names
+             Google left location-less (reported for ticked lists). */
+          if (L.pins.length || L.jobs.length || L.noLoc.length) lists.push(L);
+        }).catch(function () { /* unreadable entry — skip it */ });
+      });
+    });
+    return chain.then(function () {
+      if (!lists.length) { toast('No pins found in that archive.'); return; }
+      if (lists.length === 1) { mergePinLists(lists); return; }
+      pickPinLists(lists);
+    });
+  }).catch(function () { toast('Could not read that pin file.'); });
+}
 function importPinsFile(file) {
   var lower = String((file && file.name) || '').toLowerCase();
+  /* 2026-11-25 (item 8): a .zip that is a KMZ in disguise (a readable
+     KML inside) keeps the KMZ path below; any other .zip is read as a
+     Takeout-style archive of list files. */
+  if (/\.zip$/i.test(lower) && file.arrayBuffer) {
+    file.arrayBuffer().then(function (buf) {
+      return kmzToKmlText(buf).then(function (kml) {
+        if (kml) {
+          var pins;
+          try { pins = parseKmlPins(kml); }
+          catch (e) { toast('Could not read that pin file.'); return; }
+          finishPinParse(pins, []);
+          return;
+        }
+        return importTakeoutZip(buf);
+      });
+    }).catch(function () { toast('Could not read that pin file.'); });
+    return;
+  }
   /* Q185: KMZ is binary — read it as bytes and unzip in the browser. */
   if (/\.kmz$/i.test(lower) && file.arrayBuffer) {
     file.arrayBuffer().then(function (buf) { return kmzToKmlText(buf); }).then(function (kml) {
@@ -11444,13 +12146,33 @@ function importPinFromLink() {
   };
   setTimeout(function () { try { inp.focus(); } catch (e) { /* noop */ } }, 150);
 }
+/* (Item 20-C, 2026-11-25, Tanner — Option D): a planted pin whose name
+   is already borne takes the next free number AT THE DOOR: the first
+   bearer keeps the bare name; duplicates land "Name 2", "Name 3", …,
+   skipping any number already taken. The check is APP-WIDE because
+   the save guard's is (Q270 scans every set on every line — a pin
+   planted bare here while another line bears the name would wall that
+   set's first edit). Pins planted earlier in the same run are already
+   in Store.data.sets, so they count. Existing piles are NOT renamed —
+   this governs the door, not the past. */
+function importedSetName(rawName) {
+  var base = String(rawName || '').trim() || 'Imported set';
+  var taken = {};
+  (Store.data.sets || []).forEach(function (s) {
+    taken[String(s.name || '').trim().toLowerCase()] = true;
+  });
+  if (!taken[base.toLowerCase()]) return base;
+  var n = 2;
+  while (taken[(base + ' ' + n).toLowerCase()]) n++;
+  return base + ' ' + n;
+}
 /* One set per pin on the active line. Trap type, set type, and every
    attractant list land "unspecified" ('' / []) so the Q5 scorecard buckets
    them honestly until the user fills them in from the set's map sheet. */
 function addImportedSet(pin, lineId) {
   var s = {
     id: uid('s'),
-    name: pin.name || 'Imported set',
+    name: importedSetName(pin.name),
     lat: pin.lat, lng: pin.lng,
     county: null,
     trapType: '', setType: '',
@@ -11711,7 +12433,7 @@ function switchTab(name) {
   if (name === 'scorecard') renderScorecardTab();
   if (name === 'totals') renderTotals();
   if (name === 'seasons') renderSeasons($('seasons-search').value);
-  if (name === 'licenses') { renderLicenses(); renderLandowners(); renderPaperworkMileage(); renderMyTags(); }
+  if (name === 'licenses') { renderLicenses(); renderLandowners(); renderPaperworkMileage(); renderMyTags(); renderTrapTagSection(); }
   if (name === 'lines') renderLines();
   try { sweepClearInputs($('pane-' + name)); } catch (e) {} /* ij (Q304): pane boxes carry the same clear × */
 }
@@ -11901,25 +12623,32 @@ function deleteLine(id) {
   var ln = lineById(d, id);
   if (!ln) return;
   if (d.lines.length <= 1) { toast('You need at least one trap line.'); return; }
-  var nSets = 0, nLogs = 0, nTrips = 0;
+  var nSets = 0, nLogs = 0, nTrips = 0, nMarkers = 0;
   d.sets.forEach(function (s) { if (s.lineId === id) nSets++; });
   d.logs.forEach(function (l) { if (l.lineId === id) nLogs++; });
   (d.trips || []).forEach(function (t) { if (t && t.lineId === id) nTrips++; });
+  (d.markers || []).forEach(function (m) { if (m && m.lineId === id) nMarkers++; });
   /* Q154 (2026-10-06): Tanner's ruling — deleting a line deletes ALL of
      its data: sets, catch logs (History included), photos, voice memos,
-     mileage trips, everything. One gone-forever warning; no empty-first. */
+     mileage trips, everything. One gone-forever warning; no empty-first.
+     Item 15 (2026-11-25): Tanner settles item 10's flagged question — a
+     deleted line's sign markers DIE WITH THE LINE. No adoption by another
+     line, no orphans: the records and their photos and voice memos go too,
+     the same Q38 discipline the sets have always had. */
   var what = [];
   if (nSets) what.push(nSets + ' set' + (nSets === 1 ? '' : 's'));
   if (nLogs) what.push(nLogs + ' catch log' + (nLogs === 1 ? '' : 's') + ' (removed from History too)');
   if (nTrips) what.push(nTrips + ' mileage trip' + (nTrips === 1 ? '' : 's'));
+  if (nMarkers) what.push(nMarkers + ' sign marker' + (nMarkers === 1 ? '' : 's'));
   confirmModal('Delete \u201C' + esc(ln.name) + '\u201D?',
     (what.length
       ? 'This will permanently delete the line and <b>everything on it</b>: ' + what.join(', ') + ', plus their photos and voice memos.'
       : 'The empty line will be removed.') +
     ' This cannot be undone \u2014 deleted data is gone forever.',
     'Delete line', function () {
-      var deadSetIds = {}, deadLogIds = {}, deadMemoIds = {};
+      var deadSetIds = {}, deadLogIds = {}, deadMemoIds = {}, deadMarkerIds = {};
       d.sets.forEach(function (x) { if (x.lineId === id) deadSetIds[x.id] = true; });
+      (d.markers || []).forEach(function (m) { if (m && m.lineId === id) deadMarkerIds[m.id] = true; });
       d.logs.forEach(function (l) {
         if (l.lineId === id || deadSetIds[l.setId]) {
           deadLogIds[l.id] = true;
@@ -11929,14 +12658,18 @@ function deleteLine(id) {
       d.lines = d.lines.filter(function (x) { return x.id !== id; });
       if (d.mapShowByLine) delete d.mapShowByLine[id]; /* per-line Show: the line's view goes with it */
       d.sets = d.sets.filter(function (x) { return x.lineId !== id; });
+      /* Item 15: the line's sign markers are removed outright — records
+         gone, not re-homed (their media dies in the sweeps below). */
+      if (Array.isArray(d.markers)) d.markers = d.markers.filter(function (m) { return !m || m.lineId !== id; });
       d.logs = d.logs.filter(function (l) { return !(l.lineId === id || deadSetIds[l.setId]); });
       if (Array.isArray(d.activity)) d.activity = d.activity.filter(function (a) { return !(a.lineId === id || deadSetIds[a.setId]); }); /* Q272 */
       /* Q8: a line's trips go with it. */
       d.trips = (d.trips || []).filter(function (t) { return !t || t.lineId !== id; });
-      /* photos + voice memos on the line's sets/logs go too (Q38: gone everywhere) */
+      /* photos + voice memos on the line's sets/logs go too (Q38: gone everywhere);
+         Item 15: a dead marker's photos (keyed by markerId) die in the same sweep */
       IDB.all('photos').then(function (all) {
         all.forEach(function (ph) {
-          if (!(deadSetIds[ph.setId] || deadLogIds[ph.logId])) return;
+          if (!(deadSetIds[ph.setId] || deadLogIds[ph.logId] || deadMarkerIds[ph.markerId])) return;
           if (photoURLs[ph.id]) { URL.revokeObjectURL(photoURLs[ph.id]); delete photoURLs[ph.id]; }
           delete photoById[ph.id];
           IDB.del('photos', ph.id);
@@ -11944,7 +12677,7 @@ function deleteLine(id) {
       }).catch(function () { /* noop */ });
       IDB.all('memos').then(function (all) {
         all.forEach(function (m) {
-          if (!(deadSetIds[m.setId] || deadMemoIds[m.id])) return;
+          if (!(deadSetIds[m.setId] || deadMemoIds[m.id] || deadMarkerIds[m.markerId])) return;
           if (memoURLs[m.id]) { URL.revokeObjectURL(memoURLs[m.id]); delete memoURLs[m.id]; }
           IDB.del('memos', m.id);
         });
@@ -12163,20 +12896,11 @@ function enterMain() {
     Store.save(); refreshMarkers();
     toast(this.checked ? 'Wind arrows are on.' : 'Wind arrows are off.');
   };
-  /* gn: my trap tag — plain text, saved like every other setting; shown
-     back on the Seasons tab beside the state's trap-tag rule. The
-     input's edit home is Paperwork → My Trap Tag since 2026-11-25
-     (Tanner's ruling); the id and the Store.data.trapTag binding are
-     unchanged, so this wiring never noticed the move. */
-  var tagInput = $('settings-traptag');
-  if (tagInput) {
-    tagInput.value = Store.data.trapTag || '';
-    tagInput.onchange = function () {
-      Store.data.trapTag = this.value.trim();
-      Store.save();
-      toast(Store.data.trapTag ? 'Trap tag saved.' : 'Trap tag cleared.');
-    };
-  }
+  /* gn → 2026-11-25 stack: My Trap Tag lives in Paperwork as a
+     staged stack of tag rows under an explicit Save (see the My
+     Trap Tag stack module at renderTrapTagSection / saveTrapTags);
+     the old single field's silent change-commit is retired. */
+  wireTrapTagSection();
   /* Q103: GPS coordinates stay hidden (screenshot-safe) unless this is on. Default off. */
   $('settings-showcoords').checked = !!Store.data.showCoords;
   $('settings-showcoords').onchange = function () {
@@ -12659,6 +13383,7 @@ function setVariationFields(foundation, name) {
   var sel = $('sf-setvariation');
   if (!sel) return;
   sel.value = name || '';
+  refreshClearPill(sel); /* a bare .value write fires no event — the pill follows the value it just wrote */
   /* A stored custom that predates remembering joins the list now, so it
      opens as a plain option from here on. (gj) */
   if (name && foundation && (SET_VARIATIONS[foundation] || []).indexOf(name) === -1) {
@@ -12869,7 +13594,11 @@ function showTripModal(lineId, tripId) {
      the Voice → notes button is gone everywhere — the notes field
      carries the keyboard-mic tip as plain text instead. */
   var tripVoiceTip = '<p class="dim" id="voice-tripnotes-tip" style="margin:8px 0 0">Tap the microphone key on your keyboard to dictate a note.</p>';
-  showModal(
+  /* Item 21 (2026-11-25): docked, same family as the landowner form —
+     at 918/984px of content in a 707px card this editor's Save sat
+     below the phone's viewport entirely on open. */
+  showDockedModal(
+    '<div class="modal-scroll">' +
     '<h3>' + (t ? 'Edit trip' : 'Log a trip') + '</h3>' +
     '<label class="field" for="m-trip-date">Date</label>' +
     '<input type="date" id="m-trip-date" value="' + esc(t ? t.date : todayISO()) + '">' +
@@ -12898,11 +13627,14 @@ function showTripModal(lineId, tripId) {
     tripVoiceTip +
     '<div class="photo-strip" id="m-trip-note-photos" style="margin-top:8px"></div>' +
     '<input type="file" id="m-odo-photo-input" class="hidden-file" accept="image/*">' +
-    '<div class="btn-row" style="margin-top:14px"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
+    '</div>' +
+    '<div class="modal-actions">' +
+    '<div class="btn-row"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
     '<button class="btn-primary" id="m-ok" type="button">' + (t ? 'Save' : '+ Add trip') + '</button></div>' +
     /* Tanner 2026-10-07 (dg): the trip box lost its Delete button — deleting
        a trip happens here in the form, like the landowner Edit screen. */
-    (t ? '<button class="btn-danger" id="m-trip-del" type="button" style="margin-top:10px;width:100%">Delete trip</button>' : '')
+    (t ? '<button class="btn-danger" id="m-trip-del" type="button" style="margin-top:10px;width:100%">Delete trip</button>' : '') +
+    '</div>'
   );
   /* Live miles readout — updates as he types. */
   function updateOdoMiles() {
@@ -13053,7 +13785,14 @@ function buildMileageRows() {
     var trips = tripsForLine(ln.id);
     if (!trips.length) return;
     trips.forEach(function (t) {
-      rows.push([t.date, ln.name, t.startOdo, t.endOdo, Math.round(tripMiles(t) * 10) / 10, t.notes || '']);
+      var noteCell = t.notes || '';
+      /* 2026-11-25 (Tanner): a GPS trip's auto-filed coverage sentence
+         never reaches the CSV, in either of its forms — the bare
+         sentence or the old "GPS track · 0:00 · …" composite. Anything
+         a user actually wrote exports verbatim; odometer trips' notes
+         pass through untouched, always. */
+      if (t.source === 'gps-track' && noteIsCoverageSentence(cleanedGpsNote(t))) noteCell = '';
+      rows.push([t.date, ln.name, t.startOdo, t.endOdo, Math.round(tripMiles(t) * 10) / 10, noteCell]);
     });
     rows.push(['TOTAL', ln.name, '', '', Math.round(lineTripTotal(ln.id) * 10) / 10, '']);
   });
@@ -13063,8 +13802,14 @@ function exportMileage() {
   var n = 0;
   (Store.data.lines || []).forEach(function (ln) { n += tripsForLine(ln.id).length; });
   if (!n) { toast('No trips logged on any line yet.'); return; }
-  downloadCSV('opossum-foot-mileage-all-lines-' + todayISO() + '.csv', buildMileageRows());
+  var rep = buildMileageReport();
+  downloadCSV(rep.fname, rep.rows);
   toast('Mileage CSV downloaded.');
+}
+/* The mileage report as {fname, rows} — the single generator behind
+   both the Export mileage button and the all-reports ZIP (item 17). */
+function buildMileageReport() {
+  return { fname: 'opossum-foot-mileage-all-lines-' + todayISO() + '.csv', rows: buildMileageRows() };
 }
 
 /* ================= 15. WIRING ================= */
@@ -13307,7 +14052,7 @@ function wireUp() {
   });
   /* Q71: memo recording, playback, and deletion live on the Edit Set form.
      The summary sheet is strictly read-only. */
-  $('btn-se-memo').onclick = function () { Memo.toggle(editingSetId, $('btn-se-memo'), null, 'se-memos', true); };
+  $('btn-se-memo').onclick = function () { Memo.toggle(editingSetId || pendingSetMemoId, $('btn-se-memo'), null, 'se-memos', true); };
 
   /* log sheet */
   /* Q12: Other-event species + log notes learn from use, tap-to-fill */
@@ -13623,6 +14368,7 @@ function wireUp() {
   $('btn-export-catches').onclick = exportCatches;
   $('btn-export-sets').onclick = exportSets;
   $('btn-export-mileage').onclick = exportMileage; /* Q8 */
+  $('btn-export-all-reports').onclick = exportAllReports; /* Item 17 */
   $('btn-import').onclick = function () { $('import-file').click(); };
   $('import-file').onchange = function () {
     if (this.files && this.files[0]) importDataFile(this.files[0]);
@@ -13798,7 +14544,7 @@ function boot() {
       /* ho (Q249): the variation is one combo field now — a foundation
          change clears it, as the rebuilt dropdown used to. */
       var vf = $('sf-setvariation');
-      if (vf) vf.value = '';
+      if (vf) { vf.value = ''; refreshClearPill(vf); } /* cleared bare on a foundation change — its pill follows */
     }
   });
   /* gi (2026-11-16, Tanner): a name typed under Other… joins its list the
