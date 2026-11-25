@@ -496,9 +496,38 @@ body[data-pinscheme="pastel"] { --pin-active:#a9d6a5; --pin-sprung:#eacd7d; --pi
    bottom fell below it — the cap computed but could not be seen, and
    the list read as the old sprawl on his phone. fitSuggestCap in
    js/app.js fits each open to the band it actually gets, inline,
-   never above this rule's 286.) */
+   never above this rule's 286.)
+   (2026-11-25: the inline era is over — the searchable lists live in
+   the full-screen picker below, where this cap is overridden and
+   the box flows at natural height inside the scrolling picker list.
+   This rule now governs only any .suggest box that still renders
+   inline; the picker override follows.) */
 .suggest.show { max-height: 286px; overflow-y: auto; overflow-x: hidden;
   -webkit-overflow-scrolling: touch; }
+/* Full-screen picker (2026-11-25, Tanner's ruling): the searchable
+   lists' new home. Above the sheets (950), below the modals
+   (1000/1100) so a sponsor bio opened from a picker row rides over
+   the picker and closing it returns to the live session. The app's
+   own chrome: dark ground, gold-touched heading, cream text. The
+   list is the scroller; its bottom wears the keyboard inset so the
+   last row can always scroll clear of the keyboard. Inside the
+   picker the moved .suggest box flows at natural height — the
+   286px inline cap above belongs to the retired inline era (the
+   picker-list scrolls, not the box). */
+.picker { position: fixed; inset: 0; z-index: 975; background: var(--bg); color: var(--text);
+  display: none; flex-direction: column; padding-top: env(safe-area-inset-top); }
+.picker.show { display: flex; }
+.picker-head { position: relative; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; padding: 14px 56px 4px; }
+.picker-head h2 { margin: 0; font-size: 21px; font-weight: 800; text-align: center; }
+#picker-x { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 48px; height: 48px;
+  background: none; border: none; color: var(--muted); font-size: 27px; line-height: 1; cursor: pointer; }
+.picker-searchrow { flex: 0 0 auto; padding: 8px 16px 10px; }
+#picker-q { width: 100%; }
+.picker-list { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+  padding: 2px 16px max(24px, var(--kb-inset, 0px), env(safe-area-inset-bottom));
+  scroll-padding-bottom: max(var(--kb-inset, 0px), env(safe-area-inset-bottom)); }
+#picker-list .suggest { margin-top: 0; }
+#picker-list .suggest.show { max-height: none; overflow: visible; }
 .suggest-item { display: block; width: 100%; text-align: left; font-size: 15px; color: var(--text);
   background: var(--card); border: 1px solid var(--line); border-top: none; padding: 9px 12px; cursor: pointer; }
 .suggest-item:first-child { border-top: 1px solid var(--line); border-radius: 10px 10px 0 0; }
@@ -634,6 +663,22 @@ body.route-locked #tabbar { pointer-events: none; opacity: .35; }
 
 /* ---------- list panes ---------- */
 .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding: 14px 14px 30px; }
+/* Keyboard regime (2026-11-25): while the iOS keyboard is open
+   (html.kb-open, set by js/keyboard.js from the plugin's events), the
+   keyboard is an INSET on the inner scrollers — padding-bottom so the
+   last field CAN scroll clear, scroll-padding-bottom so the
+   browser's own scroll math STOPS it clear — each the larger of the
+   keyboard inset and the safe-area inset (the keyboard already
+   covers the home-indicator zone, so max(), never a sum: Outl #67).
+   The tab bar hides outright: under an overlay keyboard it could
+   only be covered or panned into the void, and hiding it hands its
+   height to the pane. At rest (no .kb-open) nothing here applies and
+   the layout is byte-identical to before. */
+html.kb-open #tabbar { display: none; }
+html.kb-open .scroll, html.kb-open .sheet-body {
+  padding-bottom: max(var(--kb-inset, 0px), env(safe-area-inset-bottom));
+  scroll-padding-bottom: max(var(--kb-inset, 0px), env(safe-area-inset-bottom));
+}
 .pane-head { padding: 16px 14px 6px; }
 /* Q111 (2026-10-01): Tanner — app-wide type hierarchy. 1) Screen heading:
    large, bold, centered. */
