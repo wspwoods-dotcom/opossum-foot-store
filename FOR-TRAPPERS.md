@@ -129,7 +129,7 @@ the set detail too) — tap them to copy, handy when you're texting a buddy
 your spot.
 
 **Notes on a set are dated entries.** Type in the Notes box and tap
-**＋ Add note** — the note files with today's date, newest first, so the
+**Save note** — the note files with today's date, newest first, so the
 set's story reads in order ("rebaited with Ghost Dancer," "sign everywhere
 but no takers yet"). Notes you wrote before entries existed carry in as one
 undated "Earlier note." Dictated memos file as dated entries too, the
