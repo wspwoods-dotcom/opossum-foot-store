@@ -1,5 +1,5 @@
-// Opossum Foot — Mapbox tile proxy (Cloudflare Worker)
-// Route: opossumfoot.com/tiles/*
+// Opossum Foot — Mapbox tile proxy + Maps-link resolver (Cloudflare Worker)
+// Routes: opossumfoot.com/tiles/*  and  opossumfoot.com/resolve?u=<url>
 //
 // Why this exists: the native app (Capacitor/WKWebView) runs on the
 // capacitor://localhost origin. Mapbox's tile endpoint enforces the
@@ -34,10 +34,60 @@ const STYLES = new Set([
   "outdoors-v12",
 ]);
 
+// Maps-link resolver (2026-11-25): Data → "Paste a Maps link" tells
+// the trapper to copy the Google Maps Share link — which is a
+// maps.app.goo.gl SHORT link whose text holds no coordinates; the
+// location rides the redirect (… → google.com/maps?q=<lat>,<lng>).
+// The app cannot follow that redirect itself: Google's pages send
+// no CORS headers, and while a no-cors fetch follows the redirect,
+// WKWebView (like the spec's opaque response) will not reveal the
+// final URL — Build 96 field failure, Tanner's own share link
+// (…/UZG8nHSHFccAzT696 → ?q=41.9498016,-94.1935510) got "Could not
+// find a location in that link." So the WORKER follows it
+// server-side and returns ONLY the final URL as JSON; the app
+// parses the coordinates from that URL with its ordinary parser.
+// Guardrails, in the tile route's spirit: GET only; the target
+// must be an http(s) URL on one of the short-link hosts the app
+// itself recognizes; nothing is proxied or stored — the response
+// is the final URL and nothing else. Access-Control-Allow-Origin: *
+// because the app reads this response from the capacitor:// origin
+// (tile <img> loads never read theirs, which is why /tiles needs
+// no such header).
+const RESOLVE_HOSTS = new Set(["maps.app.goo.gl", "goo.gl", "g.page"]);
+
+async function resolveLink(request) {
+  const u = new URL(request.url).searchParams.get("u") || "";
+  let target;
+  try { target = new URL(u); } catch (e) { target = null; }
+  if (!target || (target.protocol !== "https:" && target.protocol !== "http:")
+      || !RESOLVE_HOSTS.has(target.hostname)) {
+    return new Response(JSON.stringify({ error: "unrecognized link" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    });
+  }
+  let finalUrl = "";
+  try {
+    const res = await fetch(target.toString(), { redirect: "follow" });
+    finalUrl = res.url || "";
+    // drain the body so the connection can close cleanly; the body
+    // itself (a Google Maps page) is never read or forwarded.
+    try { await res.arrayBuffer(); } catch (e) { /* noop */ }
+  } catch (e) { finalUrl = ""; }
+  return new Response(JSON.stringify({ url: finalUrl }), {
+    status: 200,
+    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method !== "GET") {
       return new Response("Method not allowed", { status: 405 });
+    }
+
+    if (new URL(request.url).pathname === "/resolve") {
+      return resolveLink(request);
     }
 
     // /tiles/<style>/256/<z>/<x>/<y>  (an optional .png suffix is tolerated)
