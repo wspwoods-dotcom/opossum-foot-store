@@ -94,6 +94,7 @@ var Store = {
     });
     normalizeLandowners(this.data); /* Q52: landowner notebook records */
     normalizeHome(this.data); /* Q53: home ground */
+    normalizeLineGround(this.data); /* Item 7: per-line ZIP + pending map jump */
     /* Q183 (2026-10-14): weather defaults ON for a fresh install — the
        Surface's blank copy surprised Tanner with the chip missing. This
        fill only fires when the key is absent, so existing installs keep
@@ -1543,8 +1544,18 @@ function sponsorSuggestRowHtml(sp, productName, fillName) {
      the sponsor's name in front of the product name. Same box either
      way: one markup for every sponsored row in the list. */
   var shown = (fillName != null) ? fillName : productName;
+  /* (2026-11-24, Tanner's ruling on Build 67): a SAVED entry that is a
+     sponsor product and the catalog row for the same product render
+     through this one markup, so side by side they were identical twins
+     (his "Texas 2 Step" appearing twice, both Sponsored). The bag row
+     carries a quiet "In your bag" tag INSIDE the name block — not a new
+     flex item beside the pill (a third item is what pushed this row
+     out of true in the Q79 x lesson). The catalog row is untouched. */
+  var nameHtml = (fillName != null)
+    ? '<span class="suggest-name suggest-name-bag"><span class="sn-text">' + esc(shown) + '</span><span class="bag-tag">In your bag</span></span>'
+    : '<span class="suggest-name">' + esc(shown) + '</span>';
   return '<div class="suggest-sponsor">' +
-    '<button type="button" class="suggest-fill" data-v="' + esc(shown) + '"><span class="suggest-name">' + esc(shown) + '</span> <span class="pill">Sponsored</span></button>' +
+    '<button type="button" class="suggest-fill" data-v="' + esc(shown) + '">' + nameHtml + ' <span class="pill">Sponsored</span></button>' +
     '<button type="button" class="sponsor-eye" data-sp="' + esc(sp.id) + '" aria-label="About ' + esc(sp.name) + '">' + mark + '</button>' +
     '</div>';
 }
@@ -2490,7 +2501,7 @@ function renderModsHtml(t, v, forceCheck) {
     h += '</div>';
   }
   h += '<div class="mod-addrow"><input type="text" id="sf-modcustom" placeholder="Add your own modification" autocomplete="off">' +
-    '<button type="button" class="btn-ghost btn-small" id="sf-modadd">Add</button></div></div></div>';
+    '<button type="button" class="btn-ghost btn-small" id="sf-modadd">+ Add</button></div></div></div>';
   return h;
 }
 function bindModAdd() {
@@ -2796,8 +2807,10 @@ function initMap() {
   refreshMarkers();
   /* Q188 (2026-10-18): reopen where you left off — the last map view wins
      on launch. Fresh installs (no saved view) keep the Q53 behavior:
-     home ground, else the trapping state. No auto-GPS-locate on open. */
-  if (!restoreLastView()) fitMapHome();
+     home ground, else the trapping state. No auto-GPS-locate on open.
+     Item 7 (2026-11-24): a pending state/ZIP jump outranks both — it
+     fires on this opening, exactly once, however long ago it was armed. */
+  if (!consumePendingMapJump() && !restoreLastView()) fitMapHome();
   map.on('moveend', function () {
     if (saveViewTimer) clearTimeout(saveViewTimer);
     saveViewTimer = setTimeout(saveLastView, 700);
@@ -3081,6 +3094,16 @@ function normalizeHome(d) {
     if (i === 0 && gAsked) ln.homeAsked = true;
   });
 }
+/* Item 7 (2026-11-24): every line carries a ZIP ('' when unset) and a
+   pending-map-jump flag, normalized like the home fields above so old
+   data and imported backups always have the pair. */
+function normalizeLineGround(d) {
+  (d.lines || []).forEach(function (ln) {
+    if (!ln || typeof ln !== 'object') return;
+    if (typeof ln.zip !== 'string' || !/^\d{5}$/.test(ln.zip)) ln.zip = '';
+    if (ln.jumpPending !== true) ln.jumpPending = false;
+  });
+}
 /* Q188: persist + restore the last map view. */
 var saveViewTimer = null;
 function saveLastView() {
@@ -3171,6 +3194,159 @@ function homeZipJump() {
   if (map) map.setView([ll.lat, ll.lng], Math.min(map.getZoom(), 11));
   $('home-bar-prompt').textContent = 'Jumped to ' + z + ' — tap the map to drop your home pin, then drag it onto the exact spot.';
   toast('Jumped to ZIP ' + z + '.');
+}
+
+/* ================= Item 7. STATE / ZIP MAP JUMP =================
+   Tanner's rulings, 2026-11-24: changing the active line's state in
+   Settings → Where You Trap re-rules Seasons and everything textual
+   at once, but the map kept opening on the old ground. Now a state
+   change ARMS a jump, and the NEXT opening of the Map goes to the new
+   state — once, then the map behaves as it always has. A ZIP box
+   under the state picker names the line's actual ground: the state
+   FOLLOWS the ZIP (through the same one door below), and the jump
+   lands on the ZIP at a working zoom. Home never moves. */
+
+/* ZIP -> state by 3-digit prefix (the USPS sectional-center layout).
+   Validated against the bundled ZIPDB: every prefix's median ZIP
+   lands inside its assigned state's bounds, and 99.6% of individual
+   ZIPs fall inside their prefix-state's bounds (the rest are
+   rectangle-corner artifacts at state lines). Prefixes that are not
+   one of the 50 states in this app — DC, PR, GU, APO/FPO — return
+   null, as do unassigned prefixes. Named exceptions first: 005 is
+   Holtsville NY (IRS), 398/399 are Georgia pockets served from
+   Florida/Atlanta sort centers, 733 is Austin TX, 885 is El Paso TX. */
+var ZIP3_STATE_RANGES = [
+  [10, 27, 'MA'], [28, 29, 'RI'], [30, 38, 'NH'], [39, 49, 'ME'], [50, 59, 'VT'], [60, 69, 'CT'], [70, 89, 'NJ'],
+  [100, 149, 'NY'], [150, 196, 'PA'], [197, 199, 'DE'], [206, 219, 'MD'], [220, 246, 'VA'], [247, 268, 'WV'],
+  [270, 289, 'NC'], [290, 299, 'SC'], [300, 319, 'GA'], [320, 339, 'FL'], [341, 349, 'FL'],
+  [350, 369, 'AL'], [370, 385, 'TN'], [386, 397, 'MS'], [400, 427, 'KY'], [430, 459, 'OH'], [460, 479, 'IN'], [480, 499, 'MI'],
+  [500, 528, 'IA'], [530, 549, 'WI'], [550, 567, 'MN'], [570, 577, 'SD'], [580, 588, 'ND'], [590, 599, 'MT'],
+  [600, 629, 'IL'], [630, 658, 'MO'], [660, 679, 'KS'], [680, 693, 'NE'], [700, 714, 'LA'], [716, 729, 'AR'],
+  [730, 749, 'OK'], [750, 799, 'TX'], [800, 816, 'CO'], [820, 831, 'WY'], [832, 838, 'ID'], [840, 847, 'UT'],
+  [850, 865, 'AZ'], [870, 884, 'NM'], [889, 898, 'NV'], [900, 961, 'CA'],
+  [967, 968, 'HI'], [970, 979, 'OR'], [980, 994, 'WA'], [995, 999, 'AK']
+];
+var ZIP3_STATE_EXCEPTIONS = { '005': 'NY', '398': 'GA', '399': 'GA', '733': 'TX', '885': 'TX' };
+function zipStateCode(zip) {
+  var z = String(zip || '').replace(/\D/g, '').slice(0, 5);
+  if (z.length < 5) return null;
+  var p = z.slice(0, 3);
+  if (Object.prototype.hasOwnProperty.call(ZIP3_STATE_EXCEPTIONS, p)) return ZIP3_STATE_EXCEPTIONS[p];
+  var n = parseInt(p, 10);
+  for (var i = 0; i < ZIP3_STATE_RANGES.length; i++) {
+    if (n >= ZIP3_STATE_RANGES[i][0] && n <= ZIP3_STATE_RANGES[i][1]) return ZIP3_STATE_RANGES[i][2];
+  }
+  return null;
+}
+
+var ZIP_HINT = 'Optional. The map jumps to this ground the next time you open it — and the state above follows the ZIP.';
+function setZipNote(msg) {
+  var el = $('settings-zip-note');
+  if (el) el.textContent = msg || ZIP_HINT;
+}
+function renderSettingsZip() {
+  var inp = $('settings-zip');
+  if (!inp) return;
+  var al = activeLine();
+  inp.value = al && al.zip ? al.zip : '';
+  setZipNote('');
+}
+/* ONE door for changing the active line's trapping state: the
+   Settings picker and the ZIP box both come through here, so every
+   effect of a state change fires identically either way — Seasons
+   re-rule, the mismatch alert re-evaluates, and the map jump arms.
+   The map itself does NOT move here (the Q110 fitMapHome-on-change
+   yields to this ruling): the jump is stored on the line, survives a
+   relaunch, and fires once on the next map opening. State and ZIP
+   never disagree after an edit — a ZIP belonging to another state
+   is cleared by a state change. */
+function applyLineStateChange(code) {
+  var al = activeLine();
+  if (!code || !al || !stateEntry(code)) return false;
+  var changed = code !== al.state;
+  al.state = code;
+  if (al.zip && zipStateCode(al.zip) !== code) al.zip = '';
+  al.jumpPending = true;
+  Store.save();
+  var sel = $('settings-state');
+  if (sel && sel.value !== code) sel.value = code;
+  renderSettingsZip();
+  renderSeasons('');
+  /* Tanner 2026-09-30: the state-mismatch alert must re-evaluate now —
+     otherwise it sits on screen after the state was just fixed in Settings. */
+  checkStateMismatch(lastStateInfo);
+  if (changed) {
+    var e = stateEntry(code);
+    toast('Trapping state is now ' + (e ? e.name : code) + '.');
+  }
+  return changed;
+}
+function settingsZipChanged() {
+  var inp = $('settings-zip');
+  if (!inp) return;
+  var al = activeLine();
+  if (!al) return;
+  var raw = inp.value.trim();
+  var z = raw.replace(/\D/g, '').slice(0, 5);
+  if (!raw) {
+    /* Clearing the box by hand re-arms the jump to the state target. */
+    if (al.zip) { al.zip = ''; al.jumpPending = true; Store.save(); }
+    inp.value = '';
+    setZipNote('');
+    return;
+  }
+  var ll = z.length === 5 && typeof zipLookup === 'function' ? zipLookup(z) : null;
+  var code = ll ? zipStateCode(z) : null;
+  if (!ll || !code || !stateEntry(code)) {
+    /* Unknown ZIP: a gentle note, and nothing else moves. */
+    inp.value = al.zip || '';
+    setZipNote('That ZIP is not on the list — state and map stay as they are.');
+    return;
+  }
+  var stateChanged = code !== al.state;
+  al.zip = z;
+  applyLineStateChange(code); /* the state follows the ZIP, through the one door */
+  if (!stateChanged) setZipNote('The map jumps to ZIP ' + z + ' the next time you open it.');
+}
+
+var ZIP_JUMP_ZOOM = 12; /* a ZIP's ground at a working, town-scale zoom */
+/* Consume the pending jump, exactly once, on a map opening. Target,
+   in order: (a) the line's own sets that lie in the line's (new)
+   state — fit them; sets outside the state never pull the jump back;
+   (b) the line's ZIP point; (c) the state itself, fit to its bounds
+   (the first-run framing). Returns false — leaving the flag armed —
+   when there is no jump or no map yet. */
+function consumePendingMapJump() {
+  var l = activeLine();
+  if (!l || !l.jumpPending) return false;
+  if (!map || typeof L === 'undefined') return false;
+  l.jumpPending = false;
+  Store.save();
+  map.invalidateSize();
+  var b = STATE_BOUNDS[l.state];
+  if (b) {
+    var pts = [];
+    (Store.data.sets || []).forEach(function (s) {
+      if (s.lineId !== l.id || !isFinite(+s.lat) || !isFinite(+s.lng)) return;
+      if (+s.lat >= b[0] && +s.lat <= b[2] && +s.lng >= b[1] && +s.lng <= b[3]) pts.push([+s.lat, +s.lng]);
+    });
+    if (pts.length) {
+      map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+      saveLastView();
+      return true;
+    }
+  }
+  if (l.zip) {
+    var ll = (typeof zipLookup === 'function') ? zipLookup(l.zip) : null;
+    if (ll) {
+      map.setView([ll.lat, ll.lng], ZIP_JUMP_ZOOM);
+      saveLastView();
+      return true;
+    }
+  }
+  fitMapToState();
+  saveLastView();
+  return true;
 }
 /* Q186 (2026-10-18): the home picker's third way in — type a US city.
    Matches come from the bundled on-device city list (js/citydb.js,
@@ -9290,7 +9466,7 @@ function openLandownerForm(id) {
     '<button class="btn-secondary" id="lo-boundary-btn" type="button">Upload boundary map</button>' +
     '<div class="lic-grid" id="lo-boundary-grid"></div>' +
     '<label class="field">Permission slips</label>' +
-    '<button class="btn-secondary" id="lo-slip-btn" type="button">Add permission slip photo</button>' +
+    '<button class="btn-secondary" id="lo-slip-btn" type="button">+ Add permission slip photo</button>' +
     '<div class="lic-grid" id="lo-slip-grid"></div>' +
     '<div class="btn-row" style="margin-top:14px"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
     '<button class="btn-primary" id="lo-save" type="button">Save landowner</button></div>' +
@@ -10087,7 +10263,7 @@ function importLineTransfer(data) {
     '<p><strong>' + esc(srcName) + '</strong> — ' + nS + ' set' + (nS === 1 ? '' : 's') + ', ' + nL + ' log' + (nL === 1 ? '' : 's') + '.</p>' +
     '<p>It lands as a new line of your own, beside your lines. Nothing of yours is changed, and nothing merges into it. Photos do not ride along in a line share.</p>' +
     '<div class="btn-row"><button class="btn-secondary" id="m2-cancel" type="button">Cancel</button>' +
-    '<button class="btn-primary" id="m2-ok" type="button">Add line</button></div>'
+    '<button class="btn-primary" id="m2-ok" type="button">+ Add line</button></div>'
   );
   $('m2-cancel').onclick = closeModal2;
   $('m2-ok').onclick = function () { closeModal2(); applyLineTransfer(data, srcName); };
@@ -10468,7 +10644,7 @@ function importPhotoPack(data) {
     '<p><strong>' + data.photos.length + ' photo' + (data.photos.length === 1 ? '' : 's') + '</strong> for <strong>' + esc(ln.name) + '</strong> — each one re-attaches to the set with the same name.' +
     (cant ? ' ' + cant + ' of them name a set that is not on that line and will be skipped.' : '') + '</p>' +
     '<div class="btn-row"><button class="btn-secondary" id="m2-cancel" type="button">Cancel</button>' +
-    '<button class="btn-primary" id="m2-ok" type="button">Add photos</button></div>'
+    '<button class="btn-primary" id="m2-ok" type="button">+ Add photos</button></div>'
   );
   $('m2-cancel').onclick = closeModal2;
   $('m2-ok').onclick = function () { closeModal2(); applyPhotoPack(data, ln); };
@@ -10879,7 +11055,7 @@ function importPinFromLink() {
     '<p>In Google Maps, open the place or dropped pin, tap <strong>Share</strong>, copy the link, and paste it here.</p>' +
     '<input type="text" id="m-pinlink" placeholder="https://maps.app.goo.gl/…" autocomplete="off" style="width:100%;margin:8px 0">' +
     '<div class="btn-row"><button class="btn-secondary" id="m-pinlink-cancel" type="button">Cancel</button>' +
-    '<button class="btn-primary" id="m-pinlink-go" type="button">Add pin</button></div>'
+    '<button class="btn-primary" id="m-pinlink-go" type="button">+ Add pin</button></div>'
   );
   var inp = $('m-pinlink');
   $('m-pinlink-cancel').onclick = closeModal;
@@ -11162,7 +11338,7 @@ function switchTab(name) {
   /* Q100 (2026-10-01): Tanner — every tab opens at the top too. */
   var psc = $('pane-' + name).querySelector('.scroll');
   if (psc) psc.scrollTop = 0;
-  if (name === 'map') { initMap(); updateWeatherChip(); refreshMarkers(); } /* Q17: marker wind refresh on open */
+  if (name === 'map') { initMap(); consumePendingMapJump(); updateWeatherChip(); refreshMarkers(); } /* Q17: marker wind refresh on open; Item 7: a pending state/ZIP jump fires on this opening */
   if (name === 'history') renderHistory();
   if (name === 'settings') { renderExportDimChips(); renderExportFilterBar(); renderSettingsHome(); refreshPurge(); } /* Q53: home status */
   if (name === 'reports') { renderExportDimChips(); renderExportFilterBar(); } /* Q231: the filters live on the Reports tab now — draw them when it opens, not only after a Settings visit */
@@ -11172,7 +11348,6 @@ function switchTab(name) {
   if (name === 'licenses') { renderLicenses(); renderLandowners(); renderPaperworkMileage(); renderMyTags(); }
   if (name === 'lines') renderLines();
   try { sweepClearInputs($('pane-' + name)); } catch (e) {} /* ij (Q304): pane boxes carry the same clear × */
-  reportViewport(); /* fj: keep the About diagnostic fresh, incl. bannerB while on the map */
 }
 
 /* ================= 13b. TRAP LINES UI =================
@@ -11197,6 +11372,7 @@ function refreshForLine() {
   renderMyTags(); /* gw: tag records follow the active line too */
   renderMapStatusFilters();
   buildStateSelect($('settings-state'), activeStateCode());
+  renderSettingsZip(); /* Item 7: the ZIP box follows the line too */
   renderSettingsLineName();
   renderTabToggles();
   renderCatchAlertsToggle(); /* Q182 */
@@ -11263,7 +11439,7 @@ function showAddLineModal() {
     '<select id="m-line-state"></select>' +
     '<div class="btn-row" style="margin-top:14px"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
     '<button class="btn-secondary" id="m-clone" type="button">Clone line</button>' +
-    '<button class="btn-primary" id="m-ok" type="button">Add line</button></div>'
+    '<button class="btn-primary" id="m-ok" type="button">+ Add line</button></div>'
   );
   buildStateSelect($('m-line-state'), activeStateCode());
   /* Q12: line names learn from use */
@@ -11334,15 +11510,22 @@ function showLineEditModal(id) {
     if (!name) { toast('Give the line a name.'); return; }
     var code = $('m-line-state').value;
     if (!code) { toast('Pick the trapping state for this line.'); return; }
+    var stateChanged = ln.state !== code;
     ln.name = name;
     ln.state = code;
+    /* Item 7: state and ZIP never disagree, whichever door changed the
+       state; a state change on the active line arms the pending map
+       jump instead of moving the map now (Q110's fitMapHome yields). */
+    if (stateChanged && ln.zip && zipStateCode(ln.zip) !== code) ln.zip = '';
+    if (stateChanged && id === Store.data.activeLineId) ln.jumpPending = true;
     rememberEntry('linename', name); /* Q12 */
     Store.save();
     closeModal();
     renderLines();
     renderSettingsLineName();
+    renderSettingsZip(); /* Item 7: the box reflects a cleared ZIP at once */
     renderLineBar();
-    if (id === Store.data.activeLineId) { renderSeasons($('seasons-search').value); fitMapHome(); } /* Q110: home wins on state change too */
+    if (id === Store.data.activeLineId) { renderSeasons($('seasons-search').value); if (!stateChanged) fitMapHome(); }
     toast('Line saved.');
   };
   $('m-del').onclick = function () { closeModal(); deleteLine(id); };
@@ -11552,7 +11735,6 @@ function toggleSettingsSection(secId) {
   var willOpen = !sec.classList.contains('open');
   if (willOpen) { sec.classList.add('open'); body.hidden = false; }
   else { sec.classList.remove('open'); body.hidden = true; }
-  if (willOpen) reportViewport(); /* fj: refresh the About diagnostic when opened */
   head.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
   if (willOpen) scrollHeadIntoView(head); /* ho (Q254) */
   return willOpen;
@@ -11599,6 +11781,7 @@ function enterMain() {
   renderHistory(); renderTotals(); renderSeasons(''); renderLicenses();
   renderMapStatusFilters();
   buildStateSelect($('settings-state'), activeStateCode());
+  renderSettingsZip(); /* Item 7 */
   renderSettingsLineName();
   renderLineBar();
   $('settings-weather').checked = !!Store.data.weatherOn;
@@ -12342,12 +12525,12 @@ function showTripModal(lineId, tripId) {
     '<input type="text" id="m-trip-notes" maxlength="80" placeholder="e.g. River bottoms check" value="' + esc(t ? t.notes || '' : '') + '">' +
     /* hm (Q195): the notes row — Add photo full width, tip below. */
     '<div class="btn-row" style="margin-top:8px">' +
-    '<button class="btn-small btn-secondary" id="m-note-photo" type="button">Add a photo</button></div>' +
+    '<button class="btn-small btn-ghost" id="m-note-photo" type="button">+ Add a photo</button></div>' +
     tripVoiceTip +
     '<div class="photo-strip" id="m-trip-note-photos" style="margin-top:8px"></div>' +
     '<input type="file" id="m-odo-photo-input" class="hidden-file" accept="image/*">' +
     '<div class="btn-row" style="margin-top:14px"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
-    '<button class="btn-primary" id="m-ok" type="button">' + (t ? 'Save' : 'Add trip') + '</button></div>' +
+    '<button class="btn-primary" id="m-ok" type="button">' + (t ? 'Save' : '+ Add trip') + '</button></div>' +
     /* Tanner 2026-10-07 (dg): the trip box lost its Delete button — deleting
        a trip happens here in the form, like the landowner Edit screen. */
     (t ? '<button class="btn-danger" id="m-trip-del" type="button" style="margin-top:10px;width:100%">Delete trip</button>' : '')
@@ -13025,20 +13208,17 @@ function wireUp() {
   $('landowner-search').oninput = function () { renderLandowners(); };
 
   /* settings */
-  $('settings-state').onchange = function () {
-    var code = this.value;
-    var al = activeLine();
-    if (!code || !al || code === al.state) return;
-    al.state = code;
-    Store.save();
-    renderSeasons('');
-    fitMapHome(); /* Q110: the line's home wins over the new state's center */
-    /* Tanner 2026-09-30: the state-mismatch alert must re-evaluate now —
-       otherwise it sits on screen after the state was just fixed in Settings. */
-    checkStateMismatch(lastStateInfo);
-    var e = stateEntry(code);
-    toast('Trapping state is now ' + (e ? e.name : code) + '.');
-  };
+  /* Item 7: the picker goes through the one state-change door
+     (applyLineStateChange); the ZIP box beside it commits on change
+     or Enter, like the home picker's ZIP. */
+  $('settings-state').onchange = function () { applyLineStateChange(this.value); };
+  var settingsZipInp = $('settings-zip');
+  if (settingsZipInp) {
+    settingsZipInp.addEventListener('change', settingsZipChanged);
+    settingsZipInp.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); settingsZipChanged(); }
+    });
+  }
   $('btn-backup').onclick = exportFullBackup;
   $('btn-export-media').onclick = exportMediaZip; /* Q214 */
   $('btn-share-line').onclick = shareActiveLine; /* fx: AirDrop / Nearby Share a line */
@@ -13160,47 +13340,13 @@ function fitAppHeight() {
       document.documentElement.style.setProperty('--app-h', window.innerHeight + 'px');
     }
   } catch (e) { /* noop */ }
-  reportViewport(); /* fj: fill the About diagnostic line with the phone's real numbers */
 }
-/* fj (2026-11-14): diagnostic readout for the dead-band below the banner —
-   the fh innerHeight fix measures right in headless but the installed PWA
-   still shows a ~62pt gap, so stop guessing and read the phone's own numbers:
-   window size, visual viewport, screen size, safe-area bottom, --app-h, and
-   where the banner actually ends. Shown in Settings → About. */
-function reportViewport() {
-  try {
-    var vs = document.getElementById('viewport-stamp'); if (!vs) return;
-    var vv = window.visualViewport;
-    var probe = document.getElementById('viewport-probe');
-    if (!probe) {
-      probe = document.createElement('div'); probe.id = 'viewport-probe';
-      probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;padding-bottom:env(safe-area-inset-bottom, 0px);visibility:hidden;pointer-events:none;';
-      document.body.appendChild(probe);
-    }
-    var safeB = parseFloat(getComputedStyle(probe).paddingBottom) || 0;
-    /* fn (2026-11-14): the bottom banner is gone, so bannerB now reads the
-       tab bar's bottom — the bottom edge of the app chrome. The field name
-       stays so the diagnostic format (and the fj check) does not change. */
-    var ban = document.getElementById('tabbar');
-    /* bannerB only exists while the map view is laid out (Settings hides it),
-       so keep the last real reading instead of reporting 0. */
-    var banRect = ban ? ban.getBoundingClientRect() : null;
-    if (banRect && banRect.height > 0) reportViewport.lastBanB = Math.round(banRect.bottom);
-    var banB = (typeof reportViewport.lastBanB === 'number') ? reportViewport.lastBanB : -1;
-    /* fk: appH is the shell's real px height (body border box), not the
-       --app-h var — in standalone --app-h is '100vh', which getComputedStyle
-       returns as a literal, and the diagnostic must prove the shell in px.
-       NOTE: bannerB/appH are layout numbers; if the compositor clipped the
-       shell they could read 874 while the gap stayed — the screenshot is
-       the ground truth, these numbers are the supporting evidence. */
-    var appH = -1;
-    try { if (document.body) appH = Math.round(document.body.getBoundingClientRect().height); } catch (e) { /* noop */ }
-    vs.textContent = 'win ' + window.innerWidth + 'x' + window.innerHeight +
-      ' · vv ' + (vv ? Math.round(vv.width) + 'x' + Math.round(vv.height) : 'n/a') +
-      ' · scr ' + window.screen.width + 'x' + window.screen.height +
-      ' · safeB ' + Math.round(safeB) + ' · appH ' + appH + ' · bannerB ' + banB;
-  } catch (e) { /* noop */ }
-}
+/* Item 8 (2026-11-24, Tanner): the fj viewport diagnostic readout
+   (win/vv/scr/safeB/appH/bannerB, once shown in Settings → About) is
+   REMOVED — element, updater, and call sites. It only ever READ the
+   layout; nothing consumed its numbers. The layout math it described
+   stays: fitAppHeight() above still pins --app-h, which is what holds
+   the shell at the true viewport height (css/styles.css B27/fh). */
 if (typeof window !== 'undefined') {
   window.addEventListener('resize', fitAppHeight);
   window.addEventListener('orientationchange', fitAppHeight);
