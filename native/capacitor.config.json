@@ -2,6 +2,11 @@
   "appId": "com.opossumfoot.app",
   "appName": "Opossum Foot",
   "webDir": "www",
+  "plugins": {
+    "Keyboard": {
+      "resize": "none"
+    }
+  },
   "server": {
     "androidScheme": "https",
     "iosScheme": "https"
