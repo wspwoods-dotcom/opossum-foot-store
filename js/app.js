@@ -1606,156 +1606,20 @@ function sponsorSuggests(key, q) {
    Two passes: one quick (typing, keyboard already up) and one after the
    keyboard finishes rising (focus); a pass no-ops when the field
    already sits right or is no longer focused. */
-/* (Finding #2, Tanner on Build 74): the .suggest.show stylesheet cap
-   (286px) COMPUTES in every engine — WebKit included (bench: maker box
-   h=286, scrollH=1924). What failed on his phone is the cap's intent:
-   with the keyboard up, the visible band is ~460 tall and the sheet
-   head + label + field park the box top at ~189, so a 286 box's bottom
-   lands at ~475 — BELOW the band, behind the keyboard. Its border and
-   the half-row "more below" peek are off-screen; the rows run unbroken
-   to the keyboard exactly like the old uncapped sprawl (his screenshot
-   rows match a capped box in a 460 slice row for row), and the tall-
-   viewport bench probe called the 286 measurement proof. The cap is
-   therefore TWO-part: 286 is the ceiling, and each open also fits the
-   box to the band it actually gets — box top to band bottom, minus a
-   breath — floored at 120 so the list stays usable, recomputed on
-   every reveal pass as the keyboard pan settles. One hook here covers
-   every list path: attachSuggest, comboAttach (maker cascade
-   included), and the set-name suggest all render, then call
-   comboReveal. */
-function fitSuggestCap(box) {
-  var vv = window.visualViewport;
-  var visH = vv ? vv.height : window.innerHeight;
-  if (!visH || visH <= 0) return;
-  var br = box.getBoundingClientRect();
-  if (!br || (br.width === 0 && br.height === 0)) return;
-  var avail = visH - br.top - 10;
-  var cap = Math.max(120, Math.min(286, Math.floor(avail)));
-  box.style.maxHeight = cap + 'px';
-}
-function comboReveal(input, box) {
-  if (!input || !box) return;
-  if (box.className && box.className.indexOf('show') !== -1) fitSuggestCap(box);
-  else box.style.maxHeight = '';
-  /* ik (2026-11-21, Q306, Tanner): the ij overlay experiment is REVERTED
-     in full — on his iPhone the floating list sprawled across the form,
-     its rows overlapping the fields below; he ruled the in-page list
-     better and the jumping acceptable. This function is back to its
-     ih form: hr's reveal, run after every show-render. */
-  /* (2026-11-24, Tanner's field correction): the reveal used to be gated
-     on the suggestion box SHOWING — the passes bailed when the box had
-     no 'show', and the render paths only called here after a show-render.
-     So the scroll was a side effect of the dropdown: type text that
-     matches the list and the sheet jumps up; type something NOT in the
-     list (a custom entry in the making — no dropdown ever renders) and
-     the field stayed low behind the keyboard, his 2026-11-21 complaint
-     in its remaining half. The render paths now call here on their
-     no-match branches too, and a pass with the box shut runs FIELD-ONLY:
-     the field alone must sit inside the visible band above the
-     keyboard, and a field already fully visible is left exactly where
-     it is (no jump). With the box shown, hr's math is untouched. */
-  [60, 380, 800].forEach(function (delay) {
-    setTimeout(function () {
-      if (document.activeElement !== input) return;
-      var shown = !!(box.className && box.className.indexOf('show') !== -1);
-      /* Finding #2: fit the box to the band BEFORE the acceptance math,
-         so listWanted below reads the capped height and the scroll
-         target accounts for the box the user will actually see. */
-      if (shown) fitSuggestCap(box); else box.style.maxHeight = '';
-      var sc = input.closest ? input.closest('.scroll') : null;
-      if (!sc) {
-        var p = input.parentElement;
-        while (p && p !== document.body) {
-          var cs = getComputedStyle(p);
-          if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && p.scrollHeight > p.clientHeight) { sc = p; break; }
-          p = p.parentElement;
-        }
-      }
-      /* (2026-11-24 evening, Tanner's field reports on Build 62 — the
-         reveal REGRESSION, superseding the morning's guard): typing in
-         the bait and lure boxes made the input VANISH — the sheet ended
-         scrolled so the saved row above sat under the status bar and
-         the field was above the visible band entirely. Reproduced on
-         the bench only once the harness simulated the iOS keyboard
-         PAN (store-reveal-pan-probe.py): when the keyboard rises,
-         WKWebView shrinks visualViewport.height AND pans the visual
-         viewport (offsetTop > 0) to reveal the field; client rects are
-         reported in that VISUAL frame, and the pan animates in behind
-         the keyboard while these passes (re-armed on every keystroke
-         render) measure mid-flight — the two motions compound, the
-         passes scroll the body too far up, and the field is carried
-         above the band. The morning's guard then refused the rescue:
-         its no-op judged the field against guardTop, measured from the
-         sheet head's rect — which the pan had itself displaced above
-         the band (bench: head bottom −187), so the acceptance window
-         slid below the band top and a field resting at −146 read as
-         "below the guard" and was left there. Build 56's absolute
-         ir.top >= 0 test, which the guard replaced, had refused that
-         rest and scrolled the field back in.
-         The discipline now, all in the visual frame (band = [0,
-         visualViewport.height]; rects and visH are the same frame on
-         WebKit, and the pan probe's shim presents the same frame):
-         1. Acceptance ALWAYS includes the absolute band: a field
-            above 0 or below visH is never "resting", whatever any
-            landmark says. The guard may only tighten acceptance, and
-            only when its landmark (sheet head, else scroller top) is
-            itself inside the band — a pan-displaced landmark sets no
-            window. With no landmark in the band, a field may not rest
-            within 24px of the band top either (the Build 56 urine
-            pin: field jammed at the top edge, head panned out).
-         2. The scroll target is floored at an in-band guard, as
-            before, so a pinned field is pulled down under its head.
-         3. One pass scrolls at most one band height, and verifies
-            after scrolling: if the field ended above the band top,
-            the overshoot is scrolled back in the same pass. Being in
-            the band outranks resting at the target.
-         4. A third, late pass (800ms) runs after the pan has settled
-            and rescues anything the pan's completion displaced; it
-            no-ops on a correctly resting field.
-         5. A pass that cannot establish the band (no viewport height,
-            no rect) does nothing. A reveal that declines to scroll is
-            a lesser evil than one that scrolls a field out of sight. */
-      var vv = window.visualViewport;
-      var visH = vv ? vv.height : window.innerHeight;
-      if (!visH || visH <= 0) return;
-      var ir = input.getBoundingClientRect();
-      if (!ir || (ir.width === 0 && ir.height === 0)) return;
-      var guardTop = 0;
-      var sheetEl = input.closest ? input.closest('.sheet') : null;
-      if (sheetEl) {
-        var headEl = sheetEl.querySelector('.sheet-head');
-        if (headEl) {
-          var hb = headEl.getBoundingClientRect().bottom;
-          if (hb > 0) guardTop = hb + 6; /* landmark counts only in-band */
-        }
-      }
-      if (!guardTop && sc) {
-        var st = sc.getBoundingClientRect().top;
-        if (st > 0) guardTop = st + 6;
-      }
-      var acceptMin = guardTop > 0 ? Math.max(0, guardTop - 1) : 24;
-      var target = Math.max(10, visH * 0.30);
-      if (guardTop > target) target = guardTop;
-      if (target > visH - ir.height - 8) target = Math.max(acceptMin, visH - ir.height - 8);
-      if (shown) {
-        var br = box.getBoundingClientRect();
-        var listWanted = Math.min(br.height, 230);
-        if (ir.top >= acceptMin && ir.top <= target + 4 && ir.bottom + listWanted <= visH + 4) return;
-      } else if (ir.top >= acceptMin && ir.bottom <= visH + 4) {
-        return; /* no list coming, and the field already sits in the band, below its guard */
-      }
-      if (sc) {
-        var delta = ir.top - target;
-        if (delta > visH) delta = visH;
-        if (delta < -visH) delta = -visH;
-        sc.scrollTop += delta;
-        var ir2 = input.getBoundingClientRect();
-        if (ir2 && ir2.top < 0) sc.scrollTop += ir2.top; /* never leave the field above the band */
-      }
-      else if (input.scrollIntoView) input.scrollIntoView({ block: 'nearest' });
-    }, delay);
-  });
-}
+/* (RETIRED 2026-11-25 — fitSuggestCap + comboReveal are GONE, with
+   the inline dropdown they served.) comboReveal was the hr/Q273
+   reveal discipline: timed passes scrolling the sheet so a field and
+   its inline list fit the visible band; fitSuggestCap (Build 80)
+   capped the list to that band. Both were bench-green and both died
+   in the field — Build 80's band-fit list still ran in-flow behind
+   the keyboard ("Your scrolling list did not happen"), because an
+   inline box lives in the region the keyboard and the WKWebView pan
+   fight over. The full-screen picker (below) removes the subject:
+   the search field is pinned at the top of its own screen, the list
+   scrolls inside the picker, and there is no band left to fit and
+   nothing left to reveal. Plain sheet inputs keep their visibility
+   from the keyboard regime itself (inset scroll-padding +
+   interception, js/keyboard.js). */
 /* ---- hs (2026-11-21, Q275, Tanner): tapping a filled box selects the
    whole entry, so typing replaces it — the way most form boxes behave.
    His report, with a screenshot: the cursor landed exactly where his
@@ -1780,51 +1644,52 @@ document.addEventListener('focusin', function (e) {
     try { el.select(); } catch (err) { /* a type that refuses keeps its cursor */ }
   }, 0);
 });
-/* (Finding #1, Tanner on Build 74): he tapped the ZIP box in Settings
-   -> Where You Trap, the keypad opened, and THE LIST JUMPED ALL THE WAY
-   TO THE TOP — the field pinned at the very top of the screen, the form
-   flung away, a vast empty gap above the keyboard. No app code scrolls
-   on pane focus (measured: the pane's scrollTop moves ZERO on focus in
-   Chromium + the pan shim and in desktop WebKit) — the jump is iOS
-   WKWebView's own focus scroll-assist in a nested scroller, which
-   scrolls the pane far past the minimum and compounds with the
-   keyboard pan. What the app owned was the absence of a corrector:
-   sheet combo fields have comboReveal's discipline; plain pane inputs
-   had nothing. This guard is that discipline for plain inputs in the
-   scrolling panes (and sheet bodies): passes after focus measure the
-   field in the visual frame — pinned at the very top (top < 8) it
-   pulls the scroller back the minimum so the field rests ~48px down
-   with its form context restored; below the band it lifts the minimum;
-   resting in band it never moves anything, so a well-behaved focus
-   costs zero scroll. Combo/suggest inputs are excluded (an input with
-   a '-suggest' box is comboReveal's beat, and its rests are in band by
-   construction, so this never fights the audited reveal). */
-document.addEventListener('focusin', function (e) {
+/* (Keyboard regime, 2026-11-25 — the pane-focus guard that stood here
+   is REMOVED, on field evidence and Tanner's order.) The guard was
+   Finding #1's corrector for Build 74's jump-to-the-top: timed passes
+   at 120/450/950 ms pulling the pane back after WKWebView's focus pan
+   overshot. On Build 80 (Tanner's iPhone) it made things WORSE — he
+   tapped the ZIP box and the field ended up nowhere visible, the tab
+   bar mid-screen over a void: the passes were steering against a
+   native frame that resolves ~900–1100 ms after keyboardWillShow
+   (capacitor-keyboard #24), i.e. correction itself was the losing
+   architecture. The regime that replaces it is PREVENTION, and it
+   lives in js/keyboard.js + the Capacitor config: resize:"none",
+   Keyboard.setScroll({isDisabled:true}) zeroing the outer pan at the
+   source, the keyboard carried as an inset (--kb-inset) on the inner
+   scrollers, the tab bar hidden while the keyboard is open, and the
+   sheet focus interception below. Nothing timed remains. */
+/* (Keyboard regime: pan-prevention focus interception in sheets —
+   the DrawerDeck technique, external research 2026-11-25.) Inside a
+   sheet (a modal surface), the browser's own tap-to-focus is what
+   summons the WKWebView pan. So the tap is taken over: on touchend,
+   before the browser's focus-and-pan can run, preventDefault() stops
+   it and the field is focused with preventScroll:true. The keyboard
+   still opens (the focus is real, inside the gesture's task, and the
+   native shell sets keyboardShouldRequireUserInteraction(false));
+   the only scrolling that follows is the app's own — keyboard.js's
+   single scrollIntoView against the published inset when
+   keyboardWillShow lands. Panes are NOT intercepted: their fields
+   rely on the frozen outer scroll view plus the pane's own inset
+   scroll-padding, the capacitor #1366 configuration. Scope is
+   deliberate: text-family inputs and textareas inside .sheet only,
+   and only when the tap would newly focus the field — buttons,
+   selects, date inputs and already-focused fields keep the native
+   path untouched. */
+document.addEventListener('touchend', function (e) {
   var el = e.target;
-  if (!el || el.tagName !== 'INPUT' || el.readOnly || el.disabled) return;
-  var t = (el.type || 'text').toLowerCase();
-  if (t !== 'text' && t !== 'search' && t !== 'number' && t !== 'tel' && t !== 'url' && t !== 'email') return;
-  if (el.id && document.getElementById(el.id + '-suggest')) return;
-  var sc = el.closest ? (el.closest('.sheet-body') || el.closest('.scroll')) : null;
-  if (!sc) return;
-  [120, 450, 950].forEach(function (delay) {
-    setTimeout(function () {
-      if (document.activeElement !== el) return;
-      var vv = window.visualViewport;
-      var visH = vv ? vv.height : window.innerHeight;
-      if (!visH || visH <= 0) return;
-      var ir = el.getBoundingClientRect();
-      if (!ir || (ir.width === 0 && ir.height === 0)) return;
-      var delta = 0;
-      if (ir.top < 8) delta = ir.top - 48;
-      else if (ir.bottom > visH - 4) delta = ir.bottom - (visH - 8);
-      if (!delta) return;
-      if (delta > visH) delta = visH;
-      if (delta < -visH) delta = -visH;
-      sc.scrollTop += delta;
-    }, delay);
-  });
-});
+  if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+  if (el.readOnly || el.disabled) return;
+  if (document.activeElement === el) return;
+  if (!el.closest || !el.closest('.sheet')) return;
+  if (el.tagName === 'INPUT') {
+    var t = (el.type || 'text').toLowerCase();
+    if (t !== 'text' && t !== 'search' && t !== 'number' && t !== 'tel' && t !== 'url' && t !== 'email') return;
+  }
+  e.preventDefault();
+  try { el.focus({ preventScroll: true }); } catch (err) { try { el.focus(); } catch (e2) { /* noop */ } }
+  window.__ofFocusIntercepted = (window.__ofFocusIntercepted || 0) + 1;
+}, { capture: true, passive: false });
 /* hs (2026-11-21, Q276): is this saved entry one of the sponsors'
    products for this section? His bag holds two shapes: the plain
    product name (what picking a sponsor row fills) and the
@@ -1859,10 +1724,94 @@ function sweepClearInputs(root) {
     ensureClearInput(inp);
   });
 }
+/* ================= Full-screen picker (2026-11-25, Tanner's ruling:
+   "Yes, I agree with your recommendation") =================
+   The inline suggestion dropdown is RETIRED on every searchable
+   surface. Its field record: sprawled uncapped (Build 74), then
+   capped and band-fitted on the bench but field-dead on Build 80 —
+   the rows ran in-flow down the sheet and disappeared behind the
+   keyboard, because an inline box lives in the same screen region
+   the keyboard and the WKWebView pan fight over. The pattern with
+   the production track record (external research 2026-11-25:
+   Material SearchView, Apple HIG search, Ionic's modal+searchbar)
+   is a dedicated full-screen picker: tap the field (now a read-only
+   trigger wearing its value) and the picker opens — search field
+   pinned at the TOP, where the keyboard can never cover it, the
+   list scrolling in the picker below it, its bottom padded by the
+   keyboard inset. Picking fills the field and closes; exiting
+   without picking changes nothing.
+   Minimal invasion by design: the three render paths
+   (attachSuggest, comboAttach, renderSetNameSuggest) still build
+   the SAME rows with the SAME anatomy and handlers — sponsor rows,
+   the "In your bag" tag, delete-× on saved/ordinary rows only, the
+   "Use '…'" confirm row, the None row — but the field's box node is
+   MOVED into the picker while it is open, and the query comes from
+   the picker's search box instead of the field. Every ruled
+   behavior rides along untouched: a pick is the confirm
+   (noteCommit), unconfirmed search text is picker-local and dies
+   with the session (the scrap law, satisfied by construction), and
+   the trap-model combo keeps its ruled exception — its typed text
+   commits on exit (onExit below), the way raw text in its field
+   always survived. */
+var Picker = {
+  session: null,
+  el: null, listEl: null, qEl: null, titleEl: null,
+  ensure: function () {
+    if (this.el) return true;
+    this.el = $('picker'); this.listEl = $('picker-list');
+    this.qEl = $('picker-q'); this.titleEl = $('picker-title');
+    if (!this.el || !this.listEl || !this.qEl) return false;
+    var self = this;
+    $('picker-x').addEventListener('click', function () { self.close(false); });
+    this.qEl.addEventListener('input', function () {
+      if (self.session) self.session.render();
+    });
+    this.qEl.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || !self.session) return;
+      /* Enter is the confirm law's second door: it takes the
+         "Use '…'" row when one is offered, exactly as Enter in the
+         old inline box confirmed the typed text. */
+      var c = self.session.box.querySelector('.suggest-confirm');
+      if (c) { e.preventDefault(); c.click(); }
+    });
+    return true;
+  },
+  isOpenFor: function (input) { return !!(this.session && this.session.input === input); },
+  query: function () { return this.qEl ? this.qEl.value : ''; },
+  open: function (cfg) {
+    if (!this.ensure()) return;
+    if (this.session) this.close(false);
+    var box = cfg.box;
+    cfg.home = { p: box.parentNode, n: box.nextSibling };
+    this.listEl.appendChild(box);
+    this.titleEl.textContent = cfg.title || 'Pick';
+    this.qEl.value = cfg.initialQuery || '';
+    this.qEl.placeholder = cfg.placeholder || 'Search or type';
+    this.session = cfg;
+    this.el.className = 'picker show';
+    cfg.render();
+    var q = this.qEl;
+    setTimeout(function () { try { q.focus({ preventScroll: true }); } catch (e) { try { q.focus(); } catch (e2) { /* noop */ } } }, 30);
+  },
+  close: function (picked) {
+    var s = this.session;
+    if (!s) return;
+    this.session = null;
+    if (!picked && s.onExit) { try { s.onExit(this.qEl.value.trim()); } catch (e) { /* the field keeps its value */ } }
+    s.box.className = 'suggest'; s.box.innerHTML = '';
+    if (s.home && s.home.p) s.home.p.insertBefore(s.box, s.home.n);
+    this.el.className = 'picker';
+    try { this.qEl.blur(); } catch (e) { /* noop */ }
+  }
+};
 function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
   var input = $(inputId), box = $(boxId);
   if (!input || !box || input._suggestWired) return;
   input._suggestWired = true;
+  /* Picker era (2026-11-25): the field is a read-only trigger — its
+     value is written by picks, the clear ×, and code, never typed
+     into in the sheet. Typing happens in the picker's search box. */
+  input.readOnly = true;
   /* in (Q309): noneFace boxes open wearing None when they hold nothing. */
   if (noneFace) { input._noneFace = true; if (!input.value) input.value = 'None'; }
   /* Q236 (2026-11-07): an × that wipes the field in one tap — the manual
@@ -1900,7 +1849,8 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
     if (e && e.stopPropagation) e.stopPropagation();
     input.value = noneFace ? 'None' : '';
     input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.focus();
+    /* Picker era: no input.focus() here — focusing the field now
+       OPENS the picker, and clearing a box must never pop a picker. */
   };
   function updateClear() { clearBtn.hidden = !input.value || (noneFace && input.value === 'None'); }
   function fillFrom(btn) {
@@ -1915,16 +1865,21 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
        Dispatch it so the button (and the bait-rule check) update. */
     input.dispatchEvent(new Event('input', { bubbles: true }));
     /* ht (2026-11-21, Q277, Tanner): a pick FINISHES the field — one
-       action, not two. This used to call input.focus() here, which left
-       him sitting in the filled box (value highlighted under hs's
-       select-all) with the keyboard's checkmark still to tap. Now the
-       pick fills, the highlight drops, and the keyboard goes away. */
+       action, not two. Picker era: the pick also closes the picker,
+       and the keyboard (which belongs to the picker's search box)
+       goes away with it. */
+    Picker.close(true);
     input.blur();
   }
   function render(bagMode) {
     /* ft: a just-picked value closes the box and keeps it closed. */
     if (input._justFilled) { input._justFilled = false; box.className = 'suggest'; box.innerHTML = ''; return; }
-    var q = (noneFace && input.value.trim() === 'None') ? '' : input.value.trim().toLowerCase(); /* in (Q309): the face reads as empty, so the bag + pin render */
+    /* Picker era: the rows render only inside an open picker session
+       for this field; the query is the picker's search text (the
+       field itself is read-only now). Programmatic 'input' events
+       with no session open land here and simply keep the box shut. */
+    if (!Picker.isOpenFor(input)) { box.className = 'suggest'; box.innerHTML = ''; return; }
+    var q = (noneFace && Picker.query().trim() === 'None') ? '' : Picker.query().trim().toLowerCase(); /* in (Q309): the face reads as empty, so the bag + pin render */
     /* hs (2026-11-21, Q276, Tanner — reversing the ft type-to-filter call
        at his word; he named the back-and-forth himself): on an attractant
        field, an empty box — tapped into, or typed back to empty — shows
@@ -1957,7 +1912,7 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
        typed text itself, tappable. Tapping it runs fillFrom, which is
        the confirm: the value becomes an entry the save will keep. With
        no tap, the save settles the box back to what it opened with. */
-    var typedRaw = input.value.trim();
+    var typedRaw = Picker.query().trim();
     var openedRaw = inSetForm() ? setFormOpenedValue(input) : null;
     var needsConfirm = inSetForm() && !!typedRaw && !(noneFace && typedRaw === 'None') &&
       !(typeof setFormCommits !== 'undefined' && setFormCommits[input.id] === typedRaw) &&
@@ -1965,10 +1920,10 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
     var confirmHtml = needsConfirm
       ? '<div class="suggest-row"><button type="button" class="suggest-item suggest-confirm" data-v="' + esc(typedRaw) + '">Use &ldquo;' + esc(typedRaw) + '&rdquo;</button></div>'
       : '';
-    /* No matches: the box stays shut, but the field still gets its
-       reveal (2026-11-24) — comboReveal runs field-only with no list,
-       so a custom entry typed low in the form stays visible. */
-    if (!sps.length && !items.length && !showNone && !needsConfirm) { box.className = 'suggest'; box.innerHTML = ''; comboReveal(input, box); return; }
+    /* No matches: the picker list simply rests empty — the search
+       field is pinned at the top of the picker, always visible, so
+       the old reveal machinery has nothing left to rescue. */
+    if (!sps.length && !items.length && !showNone && !needsConfirm) { box.className = 'suggest'; box.innerHTML = ''; return; }
     var noneHtml = showNone
       ? '<div class="suggest-row"><button type="button" class="suggest-item" data-v="None">None</button></div>'
       : '';
@@ -2020,29 +1975,42 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
         openSponsorBio(this.getAttribute('data-sp'));
       };
     }
-    comboReveal(input, box); /* hr (Q273): keep the field + list above the keyboard */
+    /* Picker era: no reveal call — the picker IS the reveal. */
   }
   input.addEventListener('input', function () { render(); });
   input.addEventListener('input', updateClear); /* Q236: the × shows only while the field has text */
-  /* ft was: type-to-filter fields do NOT pop the box on focus. hs (Q276)
-     reverses that for attractant fields at Tanner's word: focus pops
-     HIS BAG. Every other suggest field keeps the old focus-pop. */
-  input.addEventListener('focus', function () { render(typeToFilter ? 'bag' : undefined); });
-  input.addEventListener('blur', function () {
-    setTimeout(function () { box.className = 'suggest'; }, 160);
-  });
-  /* (Item 7): Enter in a set-form suggestion box CONFIRMS the typed text
-     — the same commit as tapping the "Use …" row — and finishes the
-     field the way a pick does (ht/Q277): box closes, keyboard drops. */
-  input.addEventListener('keydown', function (e) {
-    if (e.key !== 'Enter' || !inSetForm()) return;
-    var t = input.value.trim();
-    if (!t || (noneFace && t === 'None')) return;
-    e.preventDefault();
-    noteCommit();
-    box.className = 'suggest'; box.innerHTML = '';
-    input.blur();
-  });
+  /* Picker era (2026-11-25): focus or click on the read-only field
+     opens the full-screen picker on an empty search — the bag for
+     attractant fields (hs Q276's focus-pops-his-bag, as the
+     picker's empty-search state), the full list elsewhere. The old
+     blur-hide and the in-field Enter confirm are gone: the picker's
+     lifecycle owns the box, and Enter confirms from the search box
+     (Picker's own keydown handler takes the "Use …" row). */
+  var PICKER_TITLES = { bait: 'Bait', lure: 'Lure', urine: 'Urine', visual: 'Visual attractant', audio: 'Audio attractant', trapmodel: 'Trap model', missingdetail: 'Missing detail', otherspecies: 'Species', linename: 'Line name' };
+  function openPicker() {
+    if (Picker.isOpenFor(input)) return;
+    Picker.open({
+      input: input, box: box,
+      title: PICKER_TITLES[key] || 'Pick',
+      /* Opens on the full list / the bag (empty search) — the ruled
+         focus behavior (ho: "tap the field and the FULL list opens";
+         hs Q276: focus pops his bag). Typing filters from there. */
+      initialQuery: '',
+      render: function () { render(); },
+      onExit: key === 'trapmodel' ? function (text) {
+        /* The trap-model combo is the ruled exception to the confirm
+           law (its raw typed text was never settled away): in the
+           picker, typed search text commits to the field on an
+           unpicked exit — the same survival, translated. */
+        if (text && text !== (input.value || '').trim()) {
+          input.value = text;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      } : null
+    });
+  }
+  input.addEventListener('focus', openPicker);
+  input.addEventListener('click', openPicker);
 }
 /* ================= ho (2026-11-21, Q249 + Q248, Tanner) =================
    TYPE-TO-FILTER COMBO FIELDS. Every list field on the set form is now a
@@ -2074,6 +2042,9 @@ function comboAttach(inputId, boxId, getOptions, opts) {
   if (noneFace) input._noneFace = true;
   if (!input._comboWired) {
     input._comboWired = true;
+    /* Picker era (2026-11-25): read-only trigger, same as the
+       suggestion fields — typing lives in the picker's search box. */
+    input.readOnly = true;
     var wrap = document.createElement('span');
     wrap.className = 'clear-wrap';
     input.parentNode.insertBefore(wrap, input);
@@ -2089,20 +2060,36 @@ function comboAttach(inputId, boxId, getOptions, opts) {
       if (e && e.stopPropagation) e.stopPropagation();
       input.value = noneFace ? 'None' : '';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.focus();
+      /* Picker era: no focus() — it would open the picker. */
     };
     input._comboClear = clearBtn;
     input.addEventListener('input', function () { clearBtn.hidden = !input.value || (noneFace && input.value === 'None'); renderCombo(false); });
-    input.addEventListener('focus', function () { renderCombo(true); });
-    input.addEventListener('blur', function () {
-      setTimeout(function () { box.className = 'suggest'; }, 160);
-    });
+    /* Picker era: focus/click opens the full-screen picker (the
+       cascade's change/onPick plumbing fires from the pick, exactly
+       as before). The blur-hide is gone — the picker owns the box. */
+    var COMBO_TITLES = { 'sf-maker': 'Trap brand', 'sf-type': 'Trap type', 'sf-settype': 'Set type', 'sf-setvariation': 'Set variation', 'sf-trapmodel': 'Trap model', 'sf-trapmodel-select': 'Size / model' };
+    function openComboPicker() {
+      if (Picker.isOpenFor(input)) return;
+      Picker.open({
+        input: input, box: box,
+        title: COMBO_TITLES[inputId] || 'Pick',
+        initialQuery: '', /* full list on open — the old showAll focus behavior */
+        render: function () { renderCombo(false); }
+      });
+    }
+    input.addEventListener('focus', openComboPicker);
+    input.addEventListener('click', openComboPicker);
   }
   function renderCombo(showAll) {
     var raw = getOptions() || [];
     var values = raw.map(function (o) { return (o && typeof o === 'object') ? o.v : o; });
     comboBaseCache[inputId] = values;
-    var q = showAll ? '' : ((noneFace && input.value.trim() === 'None') ? '' : input.value.trim().toLowerCase()); /* in (Q309): the face filters as empty */
+    /* Picker era: rows render only inside an open picker session;
+       with none open, the call still refreshes the option cache
+       above (selVal's remember-guard reads it) and keeps the box
+       shut. The query is the picker's search text. */
+    if (!Picker.isOpenFor(input)) { box.className = 'suggest'; box.innerHTML = ''; return; }
+    var q = (noneFace && Picker.query().trim() === 'None') ? '' : Picker.query().trim().toLowerCase(); /* in (Q309): the face filters as empty */
     var rows = raw.filter(function (o) {
       var lbl = ((o && typeof o === 'object') ? o.label : o) || '';
       var v = (o && typeof o === 'object') ? o.v : o;
@@ -2117,7 +2104,7 @@ function comboAttach(inputId, boxId, getOptions, opts) {
       var lbl = (o && typeof o === 'object') ? o.label : o;
       return '<div class="suggest-row"><button type="button" class="suggest-item" data-v="' + esc(v) + '">' + esc(lbl) + '</button></div>';
     }).join('');
-    if (!html) { box.className = 'suggest'; box.innerHTML = ''; comboReveal(input, box); return; } /* 2026-11-24: no list — field-only reveal, same as attachSuggest */
+    if (!html) { box.className = 'suggest'; box.innerHTML = ''; return; } /* picker era: an empty list just rests empty under the pinned search */
     box.innerHTML = html;
     box.className = 'suggest show';
     box.querySelectorAll('.suggest-item').forEach(function (b) {
@@ -2128,10 +2115,11 @@ function comboAttach(inputId, boxId, getOptions, opts) {
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
         if (opts.onPick) opts.onPick(input.value);
+        Picker.close(true);
         input.blur(); /* ht (Q277): a pick finishes the field */
       };
     });
-    comboReveal(input, box); /* hr (Q273) */
+    /* Picker era: no reveal call — the picker IS the reveal. */
   }
   input._comboRender = renderCombo;
 }
@@ -2192,19 +2180,29 @@ function renderSetNameSuggest() {
   var inp = $('sf-name'), box = $('sf-name-suggest');
   if (!inp || !box) return;
   if (inp._justFilled) { inp._justFilled = false; hideSetNameSuggest(); return; }
-  var q = inp.value.trim().toLowerCase();
-  if (!q) { hideSetNameSuggest(); return; }
-  var seen = {}, names = [];
+  /* Picker era (2026-11-25): the name list lives in the full-screen
+     picker; the query is the picker's search text. A typed name that
+     is not an existing set name gets the confirm-law "Use '…'" row —
+     tapping it (or Enter, via the picker's keydown) is the pick that
+     writes the field; exiting unpicked changes nothing. */
+  if (!Picker.isOpenFor(inp)) { hideSetNameSuggest(); return; }
+  var rawQ = Picker.query().trim();
+  var q = rawQ.toLowerCase();
+  var seen = {}, names = [], exact = false;
   activeSets().forEach(function (s) {
     var nm = String(s.name || '').trim();
     if (!nm) return;
     var k = nm.toLowerCase();
-    if (seen[k] || k.indexOf(q) === -1) return;
+    if (k === q) exact = true;
+    if (seen[k] || (q && k.indexOf(q) === -1)) return;
     seen[k] = true; names.push(nm);
   });
   names.sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); });
-  if (!names.length) { hideSetNameSuggest(); comboReveal(inp, box); return; } /* 2026-11-24: no match — field-only reveal */
-  box.innerHTML = names.map(function (n) {
+  var useHtml = (rawQ && !exact)
+    ? '<div class="suggest-row"><button type="button" class="suggest-item suggest-confirm" data-v="' + esc(rawQ) + '">Use &ldquo;' + esc(rawQ) + '&rdquo;</button></div>'
+    : '';
+  if (!names.length && !useHtml) { hideSetNameSuggest(); return; }
+  box.innerHTML = useHtml + names.map(function (n) {
     return '<button type="button" class="suggest-item" data-v="' + esc(n) + '">' + esc(n) + '</button>';
   }).join('');
   box.className = 'suggest show';
@@ -2216,13 +2214,13 @@ function renderSetNameSuggest() {
       updateSetNameClear();
       /* The flag is what the input render below consumes to keep the box
          shut over the value just picked. ht (Q277): no refocus — a pick
-         finishes the field, so blur instead of the old focus(). */
+         finishes the field, and the picker closes with it. */
       inp._justFilled = true;
       inp.dispatchEvent(new Event('input', { bubbles: true }));
+      Picker.close(true);
       inp.blur();
     };
   }
-  comboReveal(inp, box); /* hr (Q273) */
 }
 function wireSetNameField() {
   var inp = $('sf-name'), box = $('sf-name-suggest');
@@ -2246,13 +2244,27 @@ function wireSetNameField() {
     inp.value = '';
     hideSetNameSuggest();
     updateSetNameClear();
-    inp.focus();
+    /* Picker era: no focus() — it would open the picker. */
     inp.dispatchEvent(new Event('input', { bubbles: true }));
   };
   inp.addEventListener('input', renderSetNameSuggest);
   inp.addEventListener('input', updateSetNameClear);
-  inp.addEventListener('focus', renderSetNameSuggest);
-  inp.addEventListener('blur', function () { setTimeout(hideSetNameSuggest, 160); });
+  /* Picker era (2026-11-25): the name field is a read-only trigger;
+     focus/click opens the picker on the current name as the search.
+     The old blur-hide is gone — the picker owns the box. */
+  inp.readOnly = true;
+  function openNamePicker() {
+    if (Picker.isOpenFor(inp)) return;
+    Picker.open({
+      input: inp, box: box,
+      title: 'Set name',
+      initialQuery: '', /* all existing names on open; typing filters or names a new one */
+      placeholder: 'Type a name or pick one',
+      render: renderSetNameSuggest
+    });
+  }
+  inp.addEventListener('focus', openNamePicker);
+  inp.addEventListener('click', openNamePicker);
 }
 
 /* ---- Q26: stacked attractant rows on the set form ----------------------
@@ -13434,6 +13446,13 @@ function isStandaloneApp() {
 }
 function fitAppHeight() {
   try {
+    /* Keyboard regime (2026-11-25): while the iOS keyboard is open the
+       shell height is FROZEN at its keyboard-closed value. The
+       keyboard is an inset (--kb-inset, js/keyboard.js), never a
+       shell resize — a shell that also shrank would double-count the
+       keyboard against the panes' inset padding. keyboard.js calls
+       fitAppHeight() again on keyboardWillHide to resync. */
+    if (window.__ofKbOpen) return;
     if (isStandaloneApp()) {
       document.documentElement.classList.add('of-standalone');
       document.documentElement.style.setProperty('--app-h', '100vh');
