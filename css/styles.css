@@ -139,11 +139,22 @@ button, .btn {
 /* Q178 (2026-10-08): view-only notes on the detail sheet — plain text, not a box. */
 .notes-view { font-size: 17px; color: var(--ink); white-space: pre-wrap; word-wrap: break-word; margin: 0 0 8px; }
 /* ga: dated note entries on a set (form staging list + detail view) */
-.note-entry { padding: 8px 0; border-bottom: 1px solid var(--line); }
-.note-entry-head { display: flex; justify-content: space-between; align-items: center; }
-.note-date { font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-.note-text { font-size: 16px; white-space: pre-wrap; word-wrap: break-word; margin-top: 2px; }
-.note-del { background: none; border: none; color: var(--muted); font-size: 15px; line-height: 1; padding: 2px 6px; cursor: pointer; }
+/* 2026-11-24 (Tanner): filed note entries get their own BOX — they floated
+   bare on the form (date line + text + hairline). The box wears the History
+   family's treatment (1px var(--line) border, 12px radius like .sp-group,
+   panel background, the .lr-notes expand language): each entry rests
+   collapsed on ONE line — chevron + date + a glimpse of the text — and
+   expands in place to the full text. Memo cards share the same box. */
+.note-entry { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 10px 12px; margin-bottom: 8px; }
+.entry-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.entry-chev { color: var(--muted); font-size: 18.5px; line-height: 1; flex: 0 0 auto; transition: transform .18s ease; }
+.note-entry.expanded .entry-chev, .memo-card.expanded .entry-chev { transform: rotate(90deg); }
+.entry-glimpse { flex: 1; min-width: 0; font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry-body { display: none; margin-top: 8px; }
+.note-entry.expanded .entry-body, .memo-card.expanded .entry-body { display: block; }
+.note-date { font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); flex: 0 0 auto; }
+.note-text { font-size: 16px; white-space: pre-wrap; word-wrap: break-word; }
+.note-del { background: none; border: none; color: var(--muted); font-size: 15px; line-height: 1; padding: 2px 6px; cursor: pointer; flex: 0 0 auto; }
 .btn-primary { background: var(--accent); color: var(--accent-ink); width: 100%; }
 .btn-secondary { background: var(--panel); color: var(--ink); border: 1px solid var(--line); width: 100%; }
 .btn-ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
@@ -998,7 +1009,16 @@ body.route-locked #tabbar { pointer-events: none; opacity: .35; }
    custom-link override it dressed. */
 
 /* ---------- memos / audio ---------- */
-.memo-card { padding: 8px 0; border-bottom: 1px solid var(--line); }
+/* 2026-11-24 (Tanner): memo entries wear the same collapsible box as note
+   entries — collapsed line is date + duration + play; the full player
+   (native controls, Delete, transcript) lives in the expansion. */
+.memo-card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 10px 12px; margin-bottom: 8px; }
+.memo-dur { font-size: 14px; color: var(--muted); white-space: nowrap; flex: 0 0 auto; }
+.memo-play { flex: 0 0 auto; width: 32px; height: 32px; min-height: 0; border: 1px solid var(--line); background: none; color: var(--ink); font-size: 11px; line-height: 1; cursor: pointer; border-radius: 999px; margin-left: auto; }
+/* The entry × takes the History family's own delete geometry (.log-del,
+   32x32) — the base button rule's var(--tap) min-height (52px) would
+   otherwise stretch the collapsed line past one-line height. */
+.entry-head .note-del { min-height: 0; width: 32px; height: 32px; padding: 0; }
 .memo-row { display: flex; align-items: center; gap: 10px; }
 .memo-row audio { flex: 1; min-width: 0; height: 40px; }
 .memo-row .dim { white-space: nowrap; }
