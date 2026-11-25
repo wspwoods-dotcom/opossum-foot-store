@@ -127,7 +127,7 @@ var Store = {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(this.data));
     } catch (e) {
-      toast('Storage is full — export a CSV backup, then erase old data.');
+      toast('Storage is full — back up all data (JSON) on the Data tab, then erase old data.');
     }
   }
 };
@@ -478,7 +478,6 @@ function closeSheets() {
   for (var i = 0; i < sheets.length; i++) sheets[i].classList.remove('show');
   $('scrim').classList.remove('show');
   /* never leave a stray recording running behind a closed sheet */
-  try { Voice.stop(); } catch (e) { /* noop */ }
   try { Memo.stop(); } catch (e) { /* noop */ }
   /* Catch-memo finish: a closing log sheet means the catch wasn't saved
      (saveLog clears pendingLogMemos first), so any memos waiting for a
@@ -1252,27 +1251,16 @@ function renderCatchAlertsToggle() {
 /* ---- feature toggles ---- */
 function applyFeatureToggles() {
   var vOn = Store.data.voiceOn !== false;
-  ['btn-voice-setnotes', 'voice-setnotes-preview', 'btn-voice-lognotes', 'voice-lognotes-preview',
-   'btn-se-memo', 'se-memos-label', 'se-memos', 'setform-memos',
+  ['btn-se-memo', 'se-memos-label', 'se-memos', 'setform-memos',
    'sd-memos-label', 'sd-memos',
    'sd-notes-head', 'sd-notes'].forEach(function (id) {
     var el = $(id);
     if (el) el.style.display = vOn ? '' : 'none';
   });
-  /* ga: in the installed iPhone app the Voice → notes buttons cannot listen
-     (Apple blocks dictation there) — they only printed instructions, which
-     Tanner called redundant. Hide the buttons and show the one-line keyboard
-     tip instead. Record memo still works on iPhone and stays. */
-  if (isIOSPWA()) {
-    ['btn-voice-setnotes', 'voice-setnotes-preview', 'btn-voice-lognotes', 'voice-lognotes-preview'].forEach(function (id) {
-      var el = $(id);
-      if (el) el.style.display = 'none';
-    });
-  }
-  ['voice-setnotes-tip', 'voice-lognotes-tip'].forEach(function (id) {
-    var el = $(id);
-    if (el) el.style.display = (vOn && isIOSPWA()) ? '' : 'none';
-  });
+  /* 2026-11-24 (Tanner): the Voice → notes buttons are gone everywhere —
+     keyboard dictation does the job; each notes section carries the
+     one-line keyboard-mic tip as plain text now (the ga hide rule and
+     its tip toggling retire with the buttons). */
   var lt = lineTabs();
   TOGGLEABLE_TABS.forEach(function (k) {
     var tab = document.querySelector('#tabbar button[data-tab="' + k + '"]');
@@ -1626,7 +1614,7 @@ function comboReveal(input, box) {
      the field alone must sit inside the visible band above the
      keyboard, and a field already fully visible is left exactly where
      it is (no jump). With the box shown, hr's math is untouched. */
-  [60, 380].forEach(function (delay) {
+  [60, 380, 800].forEach(function (delay) {
     setTimeout(function () {
       if (document.activeElement !== input) return;
       var shown = !!(box.className && box.className.indexOf('show') !== -1);
@@ -1639,41 +1627,87 @@ function comboReveal(input, box) {
           p = p.parentElement;
         }
       }
+      /* (2026-11-24 evening, Tanner's field reports on Build 62 — the
+         reveal REGRESSION, superseding the morning's guard): typing in
+         the bait and lure boxes made the input VANISH — the sheet ended
+         scrolled so the saved row above sat under the status bar and
+         the field was above the visible band entirely. Reproduced on
+         the bench only once the harness simulated the iOS keyboard
+         PAN (store-reveal-pan-probe.py): when the keyboard rises,
+         WKWebView shrinks visualViewport.height AND pans the visual
+         viewport (offsetTop > 0) to reveal the field; client rects are
+         reported in that VISUAL frame, and the pan animates in behind
+         the keyboard while these passes (re-armed on every keystroke
+         render) measure mid-flight — the two motions compound, the
+         passes scroll the body too far up, and the field is carried
+         above the band. The morning's guard then refused the rescue:
+         its no-op judged the field against guardTop, measured from the
+         sheet head's rect — which the pan had itself displaced above
+         the band (bench: head bottom −187), so the acceptance window
+         slid below the band top and a field resting at −146 read as
+         "below the guard" and was left there. Build 56's absolute
+         ir.top >= 0 test, which the guard replaced, had refused that
+         rest and scrolled the field back in.
+         The discipline now, all in the visual frame (band = [0,
+         visualViewport.height]; rects and visH are the same frame on
+         WebKit, and the pan probe's shim presents the same frame):
+         1. Acceptance ALWAYS includes the absolute band: a field
+            above 0 or below visH is never "resting", whatever any
+            landmark says. The guard may only tighten acceptance, and
+            only when its landmark (sheet head, else scroller top) is
+            itself inside the band — a pan-displaced landmark sets no
+            window. With no landmark in the band, a field may not rest
+            within 24px of the band top either (the Build 56 urine
+            pin: field jammed at the top edge, head panned out).
+         2. The scroll target is floored at an in-band guard, as
+            before, so a pinned field is pulled down under its head.
+         3. One pass scrolls at most one band height, and verifies
+            after scrolling: if the field ended above the band top,
+            the overshoot is scrolled back in the same pass. Being in
+            the band outranks resting at the target.
+         4. A third, late pass (800ms) runs after the pan has settled
+            and rescues anything the pan's completion displaced; it
+            no-ops on a correctly resting field.
+         5. A pass that cannot establish the band (no viewport height,
+            no rect) does nothing. A reveal that declines to scroll is
+            a lesser evil than one that scrolls a field out of sight. */
       var vv = window.visualViewport;
       var visH = vv ? vv.height : window.innerHeight;
+      if (!visH || visH <= 0) return;
       var ir = input.getBoundingClientRect();
-      /* (2026-11-24, Tanner's field report on Build 56 — the reveal
-         audit): these passes had NO top guard. A mid-form field the
-         phone had already panned to the very top of the screen — under
-         the status bar, the sheet's own head scrolled out of sight —
-         reads as "already visible" to the checks below (top >= 0) and
-         was left pinned there (his urine and audio screenshots; the
-         bait field, near the form's top, never needs the pan and
-         rested correctly). The guard: a field must rest BELOW the head
-         of the sheet it sits in — the resting place the form's top
-         fields naturally occupy — or, outside a sheet, below its
-         scroller's top edge. Head and field are measured in the same
-         pass, in the same coordinates, so the rule holds however the
-         phone reports the pan. The scroll target is floored at the
-         guard and both no-op checks refuse a landing above it, so a
-         pinned field is actively scrolled back down under the head. */
+      if (!ir || (ir.width === 0 && ir.height === 0)) return;
       var guardTop = 0;
       var sheetEl = input.closest ? input.closest('.sheet') : null;
       if (sheetEl) {
         var headEl = sheetEl.querySelector('.sheet-head');
-        if (headEl) guardTop = headEl.getBoundingClientRect().bottom + 6;
+        if (headEl) {
+          var hb = headEl.getBoundingClientRect().bottom;
+          if (hb > 0) guardTop = hb + 6; /* landmark counts only in-band */
+        }
       }
-      if (!guardTop && sc) guardTop = sc.getBoundingClientRect().top + 6;
+      if (!guardTop && sc) {
+        var st = sc.getBoundingClientRect().top;
+        if (st > 0) guardTop = st + 6;
+      }
+      var acceptMin = guardTop > 0 ? Math.max(0, guardTop - 1) : 24;
       var target = Math.max(10, visH * 0.30);
       if (guardTop > target) target = guardTop;
+      if (target > visH - ir.height - 8) target = Math.max(acceptMin, visH - ir.height - 8);
       if (shown) {
         var br = box.getBoundingClientRect();
         var listWanted = Math.min(br.height, 230);
-        if (ir.top >= guardTop - 1 && ir.top <= target + 4 && ir.bottom + listWanted <= visH + 4) return;
-      } else if (ir.top >= guardTop - 1 && ir.top >= 0 && ir.bottom <= visH + 4) {
-        return; /* no list coming, and the field already sits visible below the guard */
+        if (ir.top >= acceptMin && ir.top <= target + 4 && ir.bottom + listWanted <= visH + 4) return;
+      } else if (ir.top >= acceptMin && ir.bottom <= visH + 4) {
+        return; /* no list coming, and the field already sits in the band, below its guard */
       }
-      if (sc) sc.scrollTop += ir.top - target;
+      if (sc) {
+        var delta = ir.top - target;
+        if (delta > visH) delta = visH;
+        if (delta < -visH) delta = -visH;
+        sc.scrollTop += delta;
+        var ir2 = input.getBoundingClientRect();
+        if (ir2 && ir2.top < 0) sc.scrollTop += ir2.top; /* never leave the field above the band */
+      }
       else if (input.scrollIntoView) input.scrollIntoView({ block: 'nearest' });
     }, delay);
   });
@@ -4092,8 +4126,6 @@ function openSetForm(coords, setId) {
     return { id: e.id, text: e.text, date: e.date || '', at: e.at || 0 };
   }) : [];
   renderFormNoteEntries();
-  $('voice-setnotes-preview').classList.remove('show');
-  $('voice-setnotes-preview').innerHTML = '';
   /* Q71: edit mode keeps full photo + memo control on the form itself —
      the read-only summary no longer carries the pickers. */
   pendingSetPhotos = [];
@@ -4757,9 +4789,11 @@ function addSetNoteEntry(s, text) {
   return true;
 }
 function noteEntryHTML(e) {
-  return '<div class="note-entry"><div class="note-date">' +
-    (e.date ? esc(fmtDate(e.date)) : 'Earlier note') + '</div>' +
-    '<div class="note-text">' + esc(e.text) + '</div></div>';
+  return '<div class="note-entry"><div class="entry-head">' +
+    '<span class="entry-chev" aria-hidden="true">›</span>' +
+    '<span class="note-date">' + (e.date ? esc(fmtDate(e.date)) : 'Earlier note') + '</span>' +
+    '<span class="entry-glimpse">' + esc(e.text) + '</span></div>' +
+    '<div class="entry-body"><div class="note-text">' + esc(e.text) + '</div></div></div>';
 }
 function renderSetNotes(s) {
   var el = $('sd-notes');
@@ -4767,6 +4801,9 @@ function renderSetNotes(s) {
   var es = setNoteEntries(s);
   if (!es.length) { el.textContent = '—'; return; }
   el.innerHTML = es.slice().reverse().map(noteEntryHTML).join('');
+  el.querySelectorAll('.note-entry .entry-head').forEach(function (h) {
+    h.onclick = function () { h.parentElement.classList.toggle('expanded'); };
+  });
 }
 function renderFormNoteEntries() {
   var box = $('sf-note-entries');
@@ -4776,26 +4813,48 @@ function renderFormNoteEntries() {
     var div = document.createElement('div');
     div.className = 'note-entry';
     var head = document.createElement('div');
-    head.className = 'note-entry-head';
+    head.className = 'entry-head';
+    var chev = document.createElement('span');
+    chev.className = 'entry-chev';
+    chev.setAttribute('aria-hidden', 'true');
+    chev.textContent = '›';
+    head.appendChild(chev);
     var dl = document.createElement('span');
     dl.className = 'note-date';
     dl.textContent = e.date ? fmtDate(e.date) : 'Earlier note';
     head.appendChild(dl);
+    var gl = document.createElement('span');
+    gl.className = 'entry-glimpse';
+    gl.textContent = e.text;
+    head.appendChild(gl);
     var del = document.createElement('button');
     del.type = 'button';
     del.className = 'note-del';
     del.textContent = '✕';
-    del.title = 'Remove this note';
-    del.onclick = function () {
-      formNoteEntries = formNoteEntries.filter(function (x) { return x.id !== e.id; });
-      renderFormNoteEntries();
+    del.title = 'Delete this note';
+    /* 2026-11-24 (Tanner): this × deleted with NO warning — it belongs to
+       the batch-item-4 family (every discard asks first) and Q38's
+       discipline (delete = gone everywhere, gone-forever warning). The
+       discard audit enumerated sheet-level discards and missed this ×. */
+    del.onclick = function (ev) {
+      if (ev) ev.stopPropagation();
+      confirmModal('Delete this note?',
+        'This note will be permanently deleted. This cannot be undone — deleted data is gone forever.',
+        'Delete', function () {
+          formNoteEntries = formNoteEntries.filter(function (x) { return x.id !== e.id; });
+          renderFormNoteEntries();
+        });
     };
     head.appendChild(del);
+    head.onclick = function () { div.classList.toggle('expanded'); };
     div.appendChild(head);
+    var body = document.createElement('div');
+    body.className = 'entry-body';
     var tx = document.createElement('div');
     tx.className = 'note-text';
     tx.textContent = e.text;
-    div.appendChild(tx);
+    body.appendChild(tx);
+    div.appendChild(body);
     box.appendChild(div);
   });
   if (formNoteEntries.length) setSectionOpen('setform-notessec', true);
@@ -5022,8 +5081,6 @@ function openLogSheet(setId) {
   setLogEventType('catch');
   hideLogFormError();
   $('log-warnings').innerHTML = '';
-  $('voice-lognotes-preview').classList.remove('show');
-  $('voice-lognotes-preview').innerHTML = '';
   renderSpeciesList('');
   openSheet('sheet-log');
 }
@@ -5549,77 +5606,9 @@ function quickEmptyCheck() {
 
 /* ================= 9. VOICE ================= */
 /* --- transcribe-first speech recognition --- */
-/* B10: iOS gives an installed web app no working speech recognition (Apple
-   reserves voice typing for the keyboard mic) — say so up front instead of
-   failing silently behind a dead button. */
-function isIOSPWA() {
-  var ua = navigator.userAgent || '';
-  var ios = /iPad|iPhone|iPod/.test(ua) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  var standalone = (navigator.standalone === true) ||
-    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-  return !!(ios && standalone);
-}
-var Voice = {
-  rec: null, listening: false,
-  supported: function () {
-    return ('SpeechRecognition' in window) || ('webkitSpeechRecognition' in window);
-  },
-  start: function (previewEl, onUse) {
-    var self = this;
-    if (isIOSPWA()) {
-      previewEl.classList.add('show');
-      previewEl.innerHTML = '<div class="dim">Voice typing doesn\u2019t work inside the installed app on iPhones — tap the notes box, then the \uD83C\uDFA4 mic key on your keyboard to dictate. Or use Record memo below to save audio instead.</div>';
-      return;
-    }
-    if (!this.supported()) { toast('Voice entry is not supported in this browser.'); return; }
-    if (this.listening) { this.stop(); return; }
-    var Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
-    var rec = new Ctor();
-    rec.lang = 'en-US';
-    rec.interimResults = true;
-    rec.continuous = true;
-    var finalText = '';
-    previewEl.classList.add('show');
-    previewEl.innerHTML = '<div><span class="rec-indicator"></span><strong>Listening… tap again to stop.</strong></div><div class="vp-text dim" style="margin-top:8px"></div>';
-    var textEl = previewEl.querySelector('.vp-text');
-    rec.onresult = function (e) {
-      var interim = '';
-      for (var i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalText += e.results[i][0].transcript + ' ';
-        else interim += e.results[i][0].transcript;
-      }
-      textEl.textContent = (finalText + interim).trim() || '…';
-    };
-    rec.onerror = function () {
-      self.listening = false;
-      previewEl.innerHTML = '<div class="dim">Voice entry needs a connection and microphone permission. Type instead — nothing was lost.</div>';
-    };
-    rec.onend = function () {
-      self.listening = false;
-      var t = finalText.trim();
-      if (t) {
-        previewEl.innerHTML = '<div><strong>Heard:</strong></div><div style="margin:8px 0">“' + esc(t) + '”</div>' +
-          '<div class="btn-row"><button class="btn-small btn-secondary" id="vp-use" type="button">Use this text</button>' +
-          '<button class="btn-small btn-ghost" id="vp-drop" type="button">Discard</button></div>';
-        $('vp-use').onclick = function () { onUse(t); previewEl.classList.remove('show'); previewEl.innerHTML = ''; };
-        $('vp-drop').onclick = function () { previewEl.classList.remove('show'); previewEl.innerHTML = ''; };
-      } else if (self.listening === false && !previewEl.querySelector('#vp-use')) {
-        previewEl.innerHTML = '<div class="dim">Did not catch anything. Try again or type instead.</div>';
-      }
-    };
-    try {
-      rec.start();
-      this.rec = rec; this.listening = true;
-    } catch (e) {
-      previewEl.innerHTML = '<div class="dim">Could not start voice entry.</div>';
-    }
-  },
-  stop: function () {
-    this.listening = false;
-    try { if (this.rec) this.rec.stop(); } catch (e) { /* noop */ }
-  }
-};
+/* 2026-11-24 (Tanner): the Voice object and its isIOSPWA helper are
+   retired — in-app dictation is gone; the keyboard's mic key is the
+   dictation path, and Record memo (MediaRecorder) never used them. */
 
 /* --- scorecard helpers (build ah) --- */
 function trapNights(s) {
@@ -5944,25 +5933,11 @@ var Memo = {
       self.recorder = rec; self.recording = true; self.targetSetId = setId;
       self._saving = !!onSaved; /* catch-memo: saveLog waits for the link */
       btn.innerHTML = '<span class="rec-indicator"></span>Stop recording';
-      /* live transcription alongside the recording (needs a connection; the
-         audio keeps recording regardless) */
+      /* 2026-11-24 (Tanner): speech recognition retired app-wide with the
+         Voice → notes buttons — memos are audio only; the transcript state
+         stays empty so the save flow's no-transcript path runs. */
       self._transcript = '';
       self._recog = null;
-      if (Voice.supported()) {
-        try {
-          var RCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
-          var rg = new RCtor();
-          rg.lang = 'en-US'; rg.interimResults = false; rg.continuous = true;
-          rg.onresult = function (ev) {
-            for (var i = ev.resultIndex; i < ev.results.length; i++) {
-              if (ev.results[i].isFinal) self._transcript += ev.results[i][0].transcript + ' ';
-            }
-          };
-          rg.onerror = function () { self._recog = null; /* offline — audio keeps recording */ };
-          rg.start();
-          self._recog = rg;
-        } catch (e) { self._recog = null; }
-      }
     }).catch(function () {
       toast('Microphone permission was denied.');
     });
@@ -5991,6 +5966,11 @@ var Memo = {
 var memoURLs = {};
 /* Q71: boxId/editable let the summary sheet render playback-only while the
    Edit Set form gets recording parity. */
+function fmtDur(sec) {
+  if (sec == null || !isFinite(sec)) return '—';
+  sec = Math.max(0, Math.round(sec));
+  return Math.floor(sec / 60) + ':' + ('0' + (sec % 60)).slice(-2);
+}
 function renderMemos(setId, boxId, editable) {
   var box = $(boxId || 'sd-memos');
   if (!box) return;
@@ -6012,40 +5992,90 @@ function renderMemos(setId, boxId, editable) {
       var wrap = document.createElement('div');
       wrap.className = 'memo-card';
       var linked = memoLog[m.id];
-      if (linked) {
-        var tag = document.createElement('div');
-        tag.className = 'dim memo-catch-tag';
-        tag.innerHTML = '<img class="bi" src="assets/icons/mic.png" alt="">On catch: ' + esc(linked.species || 'Unknown') + ' ×' + (linked.count || 1) +
-          (linked.date ? ' · ' + esc(fmtDate(linked.date)) : '');
-        wrap.appendChild(tag);
-      }
-      var row = document.createElement('div');
-      row.className = 'memo-row';
       var audio = document.createElement('audio');
       audio.controls = true;
       audio.preload = 'metadata';
       if (!memoURLs[m.id]) memoURLs[m.id] = URL.createObjectURL(m.blob);
       audio.src = memoURLs[m.id];
-      var when = document.createElement('span');
-      when.className = 'dim';
-      when.textContent = new Date(m.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      row.appendChild(audio); row.appendChild(when);
-      if (editable) {
-        var del = document.createElement('button');
-        del.className = 'btn-small btn-danger';
-        del.type = 'button';
-        del.textContent = 'Delete';
-        del.onclick = function () {
-          confirmModal('Delete this memo?', 'The recording will be removed from this phone.', 'Delete', function () {
+      /* One delete door, one confirm — the header × and the expanded
+         Delete button both land here. Wording carries Q38's discipline
+         (gone forever), replacing the milder 'removed from this phone'. */
+      function askDeleteMemo() {
+        confirmModal('Delete this memo?',
+          'This recording will be permanently deleted. This cannot be undone — deleted data is gone forever.',
+          'Delete', function () {
             IDB.del('memos', m.id).then(function () {
               if (memoURLs[m.id]) { URL.revokeObjectURL(memoURLs[m.id]); delete memoURLs[m.id]; }
               renderMemos(setId, boxId, editable);
             });
           });
-        };
+      }
+      /* Collapsed line: chevron + date + duration + play (play stays one
+         tap away); editors also get the × on this line. */
+      var head = document.createElement('div');
+      head.className = 'entry-head';
+      var chev = document.createElement('span');
+      chev.className = 'entry-chev';
+      chev.setAttribute('aria-hidden', 'true');
+      chev.textContent = '›';
+      head.appendChild(chev);
+      var when = document.createElement('span');
+      when.className = 'note-date';
+      when.textContent = new Date(m.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      head.appendChild(when);
+      var dur = document.createElement('span');
+      dur.className = 'memo-dur';
+      dur.textContent = '…';
+      audio.addEventListener('loadedmetadata', function () { dur.textContent = fmtDur(audio.duration); });
+      head.appendChild(dur);
+      var play = document.createElement('button');
+      play.type = 'button';
+      play.className = 'memo-play';
+      play.textContent = '▶';
+      play.title = 'Play memo';
+      play.onclick = function (ev) {
+        if (ev) ev.stopPropagation();
+        if (audio.paused) { var pr = audio.play(); if (pr && pr.catch) pr.catch(function () {}); }
+        else audio.pause();
+      };
+      audio.addEventListener('play', function () { play.textContent = '❚❚'; });
+      audio.addEventListener('pause', function () { play.textContent = '▶'; });
+      audio.addEventListener('ended', function () { play.textContent = '▶'; });
+      head.appendChild(play);
+      if (editable) {
+        var x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'note-del';
+        x.textContent = '✕';
+        x.title = 'Delete this memo';
+        x.onclick = function (ev) { if (ev) ev.stopPropagation(); askDeleteMemo(); };
+        head.appendChild(x);
+      }
+      head.onclick = function () { wrap.classList.toggle('expanded'); };
+      wrap.appendChild(head);
+      /* Expansion: the full player treatment — catch tag, native
+         controls, Delete, transcript. */
+      var body = document.createElement('div');
+      body.className = 'entry-body';
+      if (linked) {
+        var tag = document.createElement('div');
+        tag.className = 'dim memo-catch-tag';
+        tag.innerHTML = '<img class="bi" src="assets/icons/mic.png" alt="">On catch: ' + esc(linked.species || 'Unknown') + ' ×' + (linked.count || 1) +
+          (linked.date ? ' · ' + esc(fmtDate(linked.date)) : '');
+        body.appendChild(tag);
+      }
+      var row = document.createElement('div');
+      row.className = 'memo-row';
+      row.appendChild(audio);
+      if (editable) {
+        var del = document.createElement('button');
+        del.className = 'btn-small btn-danger';
+        del.type = 'button';
+        del.textContent = 'Delete';
+        del.onclick = askDeleteMemo;
         row.appendChild(del);
       }
-      wrap.appendChild(row);
+      body.appendChild(row);
       var tr = document.createElement('p');
       if (m.transcript) {
         tr.className = 'memo-transcript';
@@ -6054,7 +6084,8 @@ function renderMemos(setId, boxId, editable) {
         tr.className = 'memo-transcript dim';
         tr.textContent = '\uD83C\uDFA4 audio only \u2014 no transcript';
       }
-      wrap.appendChild(tr);
+      body.appendChild(tr);
+      wrap.appendChild(body);
       box.appendChild(wrap);
     });
     /* Q99: memos arriving late still decide the notes box's open state. */
@@ -12281,18 +12312,11 @@ function showTripModal(lineId, tripId) {
   var notePhotos = [];
   /* hm (2026-11-20, Q195): notes parity — Tanner ruled note, voice, and
      photo in ALL notes sections, and the trip editor's Notes field was
-     the one gap. It gains the set/log pattern: a Voice → notes button
-     (hidden when voice is off; on the installed iPhone app it gives way
-     to the keyboard-mic tip, the ga rule) and an Add photo button whose
-     photos classify as trip photos (kind 'note'). */
-  var tripVoiceBtn = '', tripVoiceTip = '';
-  if (Store.data.voiceOn !== false) {
-    if (isIOSPWA()) {
-      tripVoiceTip = '<p class="dim" id="voice-tripnotes-tip" style="margin:8px 0 0">Tap the <svg viewBox="0 0 24 24" width="12" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="vertical-align:-3px"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 10.5v1a6.5 6.5 0 0 0 13 0v-1"/><path d="M12 18v3"/></svg> key on your keyboard to dictate a note.</p>';
-    } else {
-      tripVoiceBtn = '<button class="btn-small btn-secondary" id="m-voice-tripnotes" type="button">Voice → notes</button>';
-    }
-  }
+     the one gap. It gains the set/log pattern: an Add photo button whose
+     photos classify as trip photos (kind 'note'). 2026-11-24 (Tanner):
+     the Voice → notes button is gone everywhere — the notes field
+     carries the keyboard-mic tip as plain text instead. */
+  var tripVoiceTip = '<p class="dim" id="voice-tripnotes-tip" style="margin:8px 0 0">Tap the microphone key on your keyboard to dictate a note.</p>';
   showModal(
     '<h3>' + (t ? 'Edit trip' : 'Log a trip') + '</h3>' +
     '<label class="field" for="m-trip-date">Date</label>' +
@@ -12316,12 +12340,10 @@ function showTripModal(lineId, tripId) {
     '<div class="lic-grid" id="m-trip-photos"></div>' +
     '<label class="field" for="m-trip-notes">Notes <span class="dim">(optional)</span></label>' +
     '<input type="text" id="m-trip-notes" maxlength="80" placeholder="e.g. River bottoms check" value="' + esc(t ? t.notes || '' : '') + '">' +
-    /* hm (Q195): the notes row — Voice → notes + Add photo, the same
-       pair the set and log notes sections carry. */
-    '<div class="btn-row" style="margin-top:8px">' + tripVoiceBtn +
+    /* hm (Q195): the notes row — Add photo full width, tip below. */
+    '<div class="btn-row" style="margin-top:8px">' +
     '<button class="btn-small btn-secondary" id="m-note-photo" type="button">Add a photo</button></div>' +
     tripVoiceTip +
-    '<div class="voice-preview" id="voice-tripnotes-preview"></div>' +
     '<div class="photo-strip" id="m-trip-note-photos" style="margin-top:8px"></div>' +
     '<input type="file" id="m-odo-photo-input" class="hidden-file" accept="image/*">' +
     '<div class="btn-row" style="margin-top:14px"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
@@ -12350,13 +12372,6 @@ function showTripModal(lineId, tripId) {
   $('m-map-photo').onclick = function () { photoTarget = 'map'; $('m-odo-photo-input').click(); };
   /* hm (Q195): the Notes photo button rides the same shared input. */
   $('m-note-photo').onclick = function () { photoTarget = 'note'; $('m-odo-photo-input').click(); };
-  var tripVnBtn = $('m-voice-tripnotes');
-  if (tripVnBtn) tripVnBtn.onclick = function () {
-    var ta = $('m-trip-notes');
-    Voice.start($('voice-tripnotes-preview'), function (t2) {
-      ta.value = (ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '') + t2;
-    });
-  };
   /* Pending notes photos, thumbnailed in the strip under the Notes
      field — the renderPendingLogPhotos pattern. Tap opens full-size. */
   function renderTripNotePhotos() {
@@ -12665,12 +12680,6 @@ function wireUp() {
   wireSetNameField();
   attachSuggest('sf-missing-detail', 'sf-missing-detail-suggest', 'missingdetail');
   $('sf-date').onchange = function () { updateDateDOW('sf-date', 'sf-date-dow'); };
-  $('btn-voice-setnotes').onclick = function () {
-    var ta = $('sf-notes');
-    Voice.start($('voice-setnotes-preview'), function (t) {
-      ta.value = (ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '') + t;
-    });
-  };
   /* ga: file the composer's text as a dated entry on the set. */
   $('btn-add-note').onclick = function () {
     if (!stageComposerNote()) toast('Nothing to add yet — write the note first.');
@@ -12785,12 +12794,6 @@ function wireUp() {
      the fields as they stand, closes the sheet, and says "Saved" out
      loud, which is the confirmation this sheet was missing. */
   $('btn-pc-ok').onclick = function () { pcTagWrite(); postCatchSetId = null; closeSheets(); toast('Saved.'); };
-  $('btn-voice-lognotes').onclick = function () {
-    var ta = $('log-notes');
-    Voice.start($('voice-lognotes-preview'), function (t) {
-      ta.value = (ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '') + t;
-    });
-  };
   /* Voice memo on the catch: records to the set's memo store now, and the
      memo id is linked to this catch when it saves. */
   $('btn-log-memo').onclick = function () {
@@ -13074,10 +13077,9 @@ function wireUp() {
   $('btn-add-line').onclick = showAddLineModal;
 
   /* sheets + modal */
-  $('scrim').onclick = function () { Voice.stop(); closeSheets(); };
+  $('scrim').onclick = function () { closeSheets(); };
   var xs = document.querySelectorAll('.sheet-x');
   for (var k = 0; k < xs.length; k++) xs[k].onclick = function () {
-    Voice.stop();
     var sheet = this.closest ? this.closest('.sheet') : null;
     /* B11: closing a half-entered catch asks first — an untouched form just closes. */
     if (sheet && sheet.id === 'sheet-log' && logFormDirty()) {
