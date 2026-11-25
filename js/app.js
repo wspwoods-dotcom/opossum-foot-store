@@ -1606,8 +1606,37 @@ function sponsorSuggests(key, q) {
    Two passes: one quick (typing, keyboard already up) and one after the
    keyboard finishes rising (focus); a pass no-ops when the field
    already sits right or is no longer focused. */
+/* (Finding #2, Tanner on Build 74): the .suggest.show stylesheet cap
+   (286px) COMPUTES in every engine — WebKit included (bench: maker box
+   h=286, scrollH=1924). What failed on his phone is the cap's intent:
+   with the keyboard up, the visible band is ~460 tall and the sheet
+   head + label + field park the box top at ~189, so a 286 box's bottom
+   lands at ~475 — BELOW the band, behind the keyboard. Its border and
+   the half-row "more below" peek are off-screen; the rows run unbroken
+   to the keyboard exactly like the old uncapped sprawl (his screenshot
+   rows match a capped box in a 460 slice row for row), and the tall-
+   viewport bench probe called the 286 measurement proof. The cap is
+   therefore TWO-part: 286 is the ceiling, and each open also fits the
+   box to the band it actually gets — box top to band bottom, minus a
+   breath — floored at 120 so the list stays usable, recomputed on
+   every reveal pass as the keyboard pan settles. One hook here covers
+   every list path: attachSuggest, comboAttach (maker cascade
+   included), and the set-name suggest all render, then call
+   comboReveal. */
+function fitSuggestCap(box) {
+  var vv = window.visualViewport;
+  var visH = vv ? vv.height : window.innerHeight;
+  if (!visH || visH <= 0) return;
+  var br = box.getBoundingClientRect();
+  if (!br || (br.width === 0 && br.height === 0)) return;
+  var avail = visH - br.top - 10;
+  var cap = Math.max(120, Math.min(286, Math.floor(avail)));
+  box.style.maxHeight = cap + 'px';
+}
 function comboReveal(input, box) {
   if (!input || !box) return;
+  if (box.className && box.className.indexOf('show') !== -1) fitSuggestCap(box);
+  else box.style.maxHeight = '';
   /* ik (2026-11-21, Q306, Tanner): the ij overlay experiment is REVERTED
      in full — on his iPhone the floating list sprawled across the form,
      its rows overlapping the fields below; he ruled the in-page list
@@ -1629,6 +1658,10 @@ function comboReveal(input, box) {
     setTimeout(function () {
       if (document.activeElement !== input) return;
       var shown = !!(box.className && box.className.indexOf('show') !== -1);
+      /* Finding #2: fit the box to the band BEFORE the acceptance math,
+         so listWanted below reads the capped height and the scroll
+         target accounts for the box the user will actually see. */
+      if (shown) fitSuggestCap(box); else box.style.maxHeight = '';
       var sc = input.closest ? input.closest('.scroll') : null;
       if (!sc) {
         var p = input.parentElement;
@@ -1746,6 +1779,51 @@ document.addEventListener('focusin', function (e) {
     if (document.activeElement !== el) return;
     try { el.select(); } catch (err) { /* a type that refuses keeps its cursor */ }
   }, 0);
+});
+/* (Finding #1, Tanner on Build 74): he tapped the ZIP box in Settings
+   -> Where You Trap, the keypad opened, and THE LIST JUMPED ALL THE WAY
+   TO THE TOP — the field pinned at the very top of the screen, the form
+   flung away, a vast empty gap above the keyboard. No app code scrolls
+   on pane focus (measured: the pane's scrollTop moves ZERO on focus in
+   Chromium + the pan shim and in desktop WebKit) — the jump is iOS
+   WKWebView's own focus scroll-assist in a nested scroller, which
+   scrolls the pane far past the minimum and compounds with the
+   keyboard pan. What the app owned was the absence of a corrector:
+   sheet combo fields have comboReveal's discipline; plain pane inputs
+   had nothing. This guard is that discipline for plain inputs in the
+   scrolling panes (and sheet bodies): passes after focus measure the
+   field in the visual frame — pinned at the very top (top < 8) it
+   pulls the scroller back the minimum so the field rests ~48px down
+   with its form context restored; below the band it lifts the minimum;
+   resting in band it never moves anything, so a well-behaved focus
+   costs zero scroll. Combo/suggest inputs are excluded (an input with
+   a '-suggest' box is comboReveal's beat, and its rests are in band by
+   construction, so this never fights the audited reveal). */
+document.addEventListener('focusin', function (e) {
+  var el = e.target;
+  if (!el || el.tagName !== 'INPUT' || el.readOnly || el.disabled) return;
+  var t = (el.type || 'text').toLowerCase();
+  if (t !== 'text' && t !== 'search' && t !== 'number' && t !== 'tel' && t !== 'url' && t !== 'email') return;
+  if (el.id && document.getElementById(el.id + '-suggest')) return;
+  var sc = el.closest ? (el.closest('.sheet-body') || el.closest('.scroll')) : null;
+  if (!sc) return;
+  [120, 450, 950].forEach(function (delay) {
+    setTimeout(function () {
+      if (document.activeElement !== el) return;
+      var vv = window.visualViewport;
+      var visH = vv ? vv.height : window.innerHeight;
+      if (!visH || visH <= 0) return;
+      var ir = el.getBoundingClientRect();
+      if (!ir || (ir.width === 0 && ir.height === 0)) return;
+      var delta = 0;
+      if (ir.top < 8) delta = ir.top - 48;
+      else if (ir.bottom > visH - 4) delta = ir.bottom - (visH - 8);
+      if (!delta) return;
+      if (delta > visH) delta = visH;
+      if (delta < -visH) delta = -visH;
+      sc.scrollTop += delta;
+    }, delay);
+  });
 });
 /* hs (2026-11-21, Q276): is this saved entry one of the sponsors'
    products for this section? His bag holds two shapes: the plain
@@ -4107,7 +4185,7 @@ function openSponsorBio(id) {
     '</div>';
   showModal(html);
   $('modal').classList.add('sponsor-sheet');
-  $('m-sp-x').onclick = function () { $('modal').classList.remove('sponsor-sheet'); closeModal(); };
+  $('m-sp-x').onclick = function () { $('modal').classList.remove('sponsor-sheet'); closeModal(); settleSetFormAfterDetour(); };
 }
 
 /* fh (2026-11-14, Tanner's ruling): the map-banner logos are display-only
@@ -4184,7 +4262,7 @@ function suggestBoxKept(input) {
    None face), so collectAttrRows / trapDetailValues / the missing-detail
    read only ever see kept values — a scrap is neither saved nor filed
    into the bag by rememberAttractants / rememberEntry. */
-function settleSetFormForSave() {
+function settleSetFormScraps() {
   var reverts = 0;
   function settleOne(input) {
     if (!input || suggestBoxKept(input)) return;
@@ -4200,8 +4278,30 @@ function settleSetFormForSave() {
   });
   settleOne($('sf-trapmodel'));
   settleOne($('sf-missing-detail'));
+  return reverts;
+}
+function settleSetFormForSave() {
+  var reverts = settleSetFormScraps();
   setFormSaveReverts += reverts;
   return reverts;
+}
+/* (Finding #4, Tanner on Build 74): a modal detour over the set form —
+   the sponsor bio, the photo viewer — ends the box interaction the same
+   way save and close do. He typed "f" in the Urine box, read a sponsor
+   bio, came back, and the "f" was still sitting there; his law is the
+   scrap lives only while he is actively working in the box. Returning
+   from the detour settles every box silently (the close-settle is silent
+   too): unconfirmed scraps revert to their opened-with value; picked,
+   Use-row/Enter-confirmed, and opened-with values are untouched. A mere
+   field switch inside the sheet is mid-work and never settles. The
+   guard keeps the call a no-op when the set form is not the surface
+   underneath (bios also open from the Scorecard and the lists). */
+function settleSetFormAfterDetour() {
+  if (setFormOpening) return;
+  if (!setFormSnapshot) return;
+  var sf = $('sheet-setform');
+  if (!sf || !sf.classList.contains('show')) return;
+  settleSetFormScraps();
 }
 /* (Item 7): after a save that reverted anything, one plain note follows
    the save's own toast — the set saved; the unconfirmed text did not. */
@@ -6021,7 +6121,7 @@ function openPhotoViewer(p, onDelete, ro) {
     '<button class="btn-secondary" id="m-ph-save" type="button">Save Photo</button>' +
     '<button class="btn-secondary" id="m-close" type="button">Close</button></div>');
   wirePhotoZoom($('modal-card')); /* Q241: pinch-to-zoom */
-  $('m-close').onclick = closeModal;
+  $('m-close').onclick = function () { closeModal(); settleSetFormAfterDetour(); };
   $('m-ph-save').onclick = function () { sharePhotoFile(p.blob, 'opossum-foot-photo'); };
   var delBtn = $('m-ph-del');
   if (delBtn) delBtn.onclick = function () {
@@ -6030,6 +6130,7 @@ function openPhotoViewer(p, onDelete, ro) {
         if (photoURLs[p.id]) { URL.revokeObjectURL(photoURLs[p.id]); delete photoURLs[p.id]; }
         delete photoById[p.id];
         closeModal();
+        settleSetFormAfterDetour();
         if (onDelete) onDelete();
         toast('Photo deleted.');
       });
@@ -6049,7 +6150,7 @@ function openFullPhoto(blob) {
     '<button class="btn-secondary" id="m-ph-save" type="button">Save Photo</button>' +
     '<button class="btn-secondary" id="m-close" type="button">Close</button></div>');
   wirePhotoZoom($('modal-card')); /* Q241/fy: pinch-to-zoom */
-  $('m-close').onclick = function () { URL.revokeObjectURL(url); closeModal(); };
+  $('m-close').onclick = function () { URL.revokeObjectURL(url); closeModal(); settleSetFormAfterDetour(); };
   $('m-ph-save').onclick = function () { sharePhotoFile(blob, 'opossum-foot-photo'); };
 }
 
