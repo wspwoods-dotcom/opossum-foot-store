@@ -269,17 +269,30 @@
            card is geography (state, ZIP, home ground); the tag is his
            legal identity — a license-and-tag instrument — and
            Paperwork is where those live, beside the License Wallet
-           and the catch tag records in My Tags. The DATA never moved:
-           the input keeps its id and its Store.data.trapTag binding
-           (existing values carry over untouched), and Seasons still
-           shows the text beside the state's tag rule — only the edit
-           door moved. Its own section, never gated by the Tag records
-           toggle: that switch governs catch tag records, not this. -->
+           and the catch tag records in My Tags. Its own section,
+           never gated by the Tag records toggle: that switch governs
+           catch tag records, not this.
+           (2026-11-25, later, Tanner): the single field became a
+           STACK of tag rows under one explicit Save — a trapper's
+           iron can carry different wordings at once (name & address
+           on some traps, a state ID number on others), and the old
+           field committed silently on change with no button and no
+           confirmation. Rows stage in the section until Save; each
+           row can carry photos of the actual tag (IDB 'photos',
+           kind 'traptag', keyed by trapTagId — excluded from the
+           JSON backup exactly like license photos). The data
+           migrated Store.data.trapTag (one string) → Store.data
+           .trapTags (a list); Seasons reads it through
+           trapTagEntries() and shows every entry. -->
       <div class="card setsec" id="setsec-traptag">
         <button type="button" class="setsec-head" id="setsec-traptag-head" data-sec="setsec-traptag" aria-expanded="false"><span>My Trap Tag</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-traptag-body" hidden>
-          <label class="field" for="settings-traptag">My trap tag</label>
-          <input type="text" id="settings-traptag" placeholder="Name &amp; address, or state ID number" autocomplete="off">
+          <div id="traptag-rows"></div>
+          <button class="btn-small btn-ghost" id="btn-traptag-add" type="button">+ Add another tag</button>
+          <div class="btn-row" style="margin-top:10px">
+            <button class="btn-primary" id="btn-traptag-save" type="button">Save</button>
+          </div>
+          <input type="file" id="traptag-photo-input" class="hidden-file" accept="image/*">
           <p class="dim" style="margin-top:8px">What your trap tags say — many states require your name and address, or a state-issued ID number, on every trap. Kept on this phone only; it shows on the Seasons tab with your state's tag rule.</p>
         </div>
       </div>
@@ -338,19 +351,92 @@
         <div class="setsec-body" id="setsec-data-move-body" hidden>
         <div class="sheet-actions">
           <button class="btn-secondary" id="btn-backup" type="button"><img class="bi" src="assets/icons/disk.png" alt="">Back up all data (JSON)</button>
-          <p class="imp-cap">Saves one file with everything — your lines, sets, and logs. Import it back after a reinstall or on a new phone.</p>
-          <button class="btn-secondary" id="btn-export-media" type="button">⬇ Export photos &amp; files (ZIP)</button>
-          <p class="imp-cap">Every photo and voice memo from <strong>every line</strong>, in one file. The backup above holds your data but not your pictures — this file is their backup.</p>
-          <button class="btn-secondary" id="btn-share-line" type="button">⬆ Share this line</button>
-          <p class="imp-cap">Send the line you are on — its sets and logs only — to another trapper (AirDrop, Nearby Share, Messages, email…). On their phone it lands as a new line of their own. Photos do not ride along.</p>
-          <button class="btn-secondary" id="btn-import" type="button"><img class="bi" src="assets/icons/upload.png" alt="">Import data</button>
+          <p class="imp-cap">Saves one file with everything in words — every line, set, and log — but no photos or voice memos. Import it back to fill an empty app, or to move to a new phone.</p>
+          <div class="setsec steps-sec" id="steps-backup">
+            <button type="button" class="setsec-head" id="steps-backup-head" data-sec="steps-backup" aria-expanded="false"><span>Step-by-step</span><span class="setsec-chev" aria-hidden="true">›</span></button>
+            <div class="setsec-body" id="steps-backup-body" hidden>
+              <ol class="steps-list">
+                <li>Tap <strong>Back up all data (JSON)</strong>.</li>
+                <li>Your phone shows its share sheet — a panel of apps like Messages, Mail, and Files. Pick where the file goes. <strong>Save to Files</strong> keeps it on this phone. Sending it to yourself by Mail or Messages keeps a copy off the phone, which is safer.</li>
+                <li>The app tells you when it's done, and how many sets and logs are in the file.</li>
+              </ol>
+              <p>This backup holds your lines, sets, and logs — but not your pictures or voice memos. Those travel in the <strong>Export photos &amp; files (ZIP)</strong> file below. For a backup that covers everything, make both files.</p>
+            </div>
+          </div>
+          <button class="btn-secondary" id="btn-export-media" type="button"><img class="bi" src="assets/icons/arrowup.png" alt="">Export photos &amp; files (ZIP)</button>
+          <p class="imp-cap">Every photo and voice memo from <strong>every line</strong>, in one file — pictures only, no sets or logs in it. It does nothing alone: Import data puts them back onto sets that are already in the app.</p>
+          <div class="setsec steps-sec" id="steps-media">
+            <button type="button" class="setsec-head" id="steps-media-head" data-sec="steps-media" aria-expanded="false"><span>Step-by-step</span><span class="setsec-chev" aria-hidden="true">›</span></button>
+            <div class="setsec-body" id="steps-media-body" hidden>
+              <ol class="steps-list">
+                <li>Tap <strong>Export photos &amp; files (ZIP)</strong>.</li>
+                <li>The share sheet opens, same as the backup. Save the file to Files, or send it to yourself by Mail or Messages.</li>
+                <li>That's it — one file now holds every photo and voice memo from every line: set photos, catch photos, license photos, permission slips, all of it.</li>
+              </ol>
+              <p>This file does nothing by itself. It holds no sets or logs — pictures and voice memos only. It works together with the JSON backup above: on a new phone you bring the backup in first, then this file, and the pictures and memos find their way back to the sets and records they came from.</p>
+            </div>
+          </div>
+          <button class="btn-secondary" id="btn-share-line" type="button"><img class="bi" src="assets/icons/arrowup.png" alt="">Share this line</button>
+          <p class="imp-cap">Send the line you are on — its sets and logs only, no photos — to another trapper (AirDrop, Nearby Share, Messages, email…). On their phone it lands as a new line of their own, and you keep yours.</p>
+          <div class="setsec steps-sec" id="steps-share">
+            <button type="button" class="setsec-head" id="steps-share-head" data-sec="steps-share" aria-expanded="false"><span>Step-by-step</span><span class="setsec-chev" aria-hidden="true">›</span></button>
+            <div class="setsec-body" id="steps-share-body" hidden>
+              <ol class="steps-list">
+                <li>Make sure you are on the line you want to send — the line named at the top of the screen is the one that goes.</li>
+                <li>Tap <strong>Share this line</strong>. The share sheet opens.</li>
+                <li>Pick how to send it — AirDrop, Messages, Mail, whatever you and the other trapper both use — and send.</li>
+                <li>On their phone, they open the file with Opossum Foot (Data tab → <strong>Import data</strong>). It lands as a brand-new line of their own.</li>
+              </ol>
+              <p>It never overwrites anything — not on their phone, not on yours. Only this line's sets and logs travel. Photos do not ride along, and neither do your other lines.</p>
+            </div>
+          </div>
+          <button class="btn-secondary" id="btn-import" type="button"><img class="bi" src="assets/icons/arrowdown.png" alt="">Import data</button>
           <p class="imp-cap">Bring in a backup file to restore your data, a media ZIP to put your photos and voice memos back, or a line another trapper sent you. A shared line lands as a new line of your own.</p>
+          <div class="setsec steps-sec" id="steps-import">
+            <button type="button" class="setsec-head" id="steps-import-head" data-sec="steps-import" aria-expanded="false"><span>Step-by-step</span><span class="setsec-chev" aria-hidden="true">›</span></button>
+            <div class="setsec-body" id="steps-import-body" hidden>
+              <ol class="steps-list">
+                <li>Tap <strong>Import data</strong>.</li>
+                <li>Find the file and tap it. It will usually be in <strong>Downloads</strong> or <strong>On My iPhone</strong> in the Files app. If someone sent it to you, save it out of Messages or Mail first, then come back here.</li>
+                <li>The app reads the file and tells you what came in.</li>
+              </ol>
+              <p><strong>A backup file (JSON)</strong> puts your own data back: your lines return under their own names, with their sets, logs, trips, landowners, and markers in place. Bringing in the same backup twice won't double anything.</p>
+              <p><strong>A line another trapper sent you</strong> lands as a new line of your own, next to the lines you already have. It never replaces or overwrites your lines.</p>
+              <p><strong>A photos &amp; files ZIP</strong> puts your pictures and voice memos back onto the records they came from. Bring the backup in first — the records have to be here before their pictures can attach.</p>
+            </div>
+          </div>
           <input type="file" id="import-file" class="hidden-file" accept=".json,application/json,.zip">
           <button class="btn-secondary" id="btn-import-pins" type="button"><img class="bi" src="assets/icons/mappin.png" alt="">Import pins from Google Maps</button>
-          <p class="imp-cap">Bring in pins you saved in Google Maps, My Maps, or Google Takeout.</p>
-          <input type="file" id="import-pins-file" class="hidden-file" accept=".kml,.kmz,.geojson,.json,.csv,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/geo+json,text/csv">
+          <p class="imp-cap">Bring in pins you saved in Google Maps, My Maps, or Google Takeout. Each pin lands as a set on the line you are on.</p>
+          <div class="setsec steps-sec" id="steps-pins">
+            <button type="button" class="setsec-head" id="steps-pins-head" data-sec="steps-pins" aria-expanded="false"><span>Step-by-step</span><span class="setsec-chev" aria-hidden="true">›</span></button>
+            <div class="setsec-body" id="steps-pins-body" hidden>
+              <p style="margin-top:0"><strong>From Google Takeout</strong> — this brings in the lists you saved in Google Maps: your trap line, deer spots, and the rest:</p>
+              <ol class="steps-list">
+                <li>Go to <strong>takeout.google.com</strong> (on a computer, or in your phone's browser) and sign in with the Google account you use in Maps. Tap <strong>Deselect all</strong>, then scroll down and check only <strong>Saved</strong> — that's the one that holds your lists. Tap <strong>Next step</strong>, then <strong>Create export</strong>. Google packs it into one zip file — the download can take a while.</li>
+                <li>Get that zip file onto this phone: download it here, or save it to Files, or send it to yourself and save it out of Mail or Messages.</li>
+                <li>Come back here, tap <strong>Import pins from Google Maps</strong>, and choose the whole zip file, just as it came. The app opens it, and if it holds more than one list, it asks which ones to bring in. Or, if you've unzipped it yourself, pick one list at a time: inside the <strong>Saved</strong> folder, each list is a file ending in <strong>.csv</strong>, named as you named it in Google Maps.</li>
+              </ol>
+              <p><strong>From Google My Maps</strong> — if your pins live on a My Maps map instead: open the map at <strong>mymaps.google.com</strong>, tap the three dots beside its name, choose <strong>Export to KML/KMZ</strong>, and save the file it gives you. Then tap the button here and choose that file.</p>
+              <p>Each pin becomes a set on the line you are on, named as it was in Google, and the app reads each pin's location right out of its link. A pin that is already on your line is not added twice.</p>
+            </div>
+          </div>
+          <input type="file" id="import-pins-file" class="hidden-file" accept=".kml,.kmz,.geojson,.json,.csv,.zip,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/geo+json,text/csv,application/zip,application/x-zip-compressed">
           <button class="btn-secondary" id="btn-paste-pin" type="button"><img class="bi" src="assets/icons/mappin.png" alt="">Paste a Maps link</button>
-          <p class="imp-cap">One pin at a time: in Google Maps tap Share, copy the link, and paste it here.</p>
+          <p class="imp-cap">One pin at a time: in Google Maps tap Share, copy the link, and paste it here. It lands as a set on the line you are on.</p>
+          <div class="setsec steps-sec" id="steps-paste">
+            <button type="button" class="setsec-head" id="steps-paste-head" data-sec="steps-paste" aria-expanded="false"><span>Step-by-step</span><span class="setsec-chev" aria-hidden="true">›</span></button>
+            <div class="setsec-body" id="steps-paste-body" hidden>
+              <ol class="steps-list">
+                <li>Open <strong>Google Maps</strong> and find the place. To mark an exact spot, press and hold on the map until a pin drops.</li>
+                <li>Tap <strong>Share</strong>. (For a dropped pin, tap its name or address at the bottom of the screen first, then Share.)</li>
+                <li>Tap <strong>Copy link</strong>.</li>
+                <li>Come back here and tap <strong>Paste a Maps link</strong>. Press and hold in the box and tap <strong>Paste</strong>.</li>
+                <li>Tap <strong>+ Add pin</strong>. The pin lands on the line you are on, as a new set.</li>
+              </ol>
+              <p>One pin at a time — for a whole list of saved places, use <strong>Import pins from Google Maps</strong> above instead. This one needs a connection: the app looks the link up to find where it points.</p>
+            </div>
+          </div>
         </div>
         </div>
       </div>
@@ -368,12 +454,14 @@
         </div>
         <p class="dim" id="exp-match-count" style="margin:8px 0 0"></p>
         <div class="sheet-actions">
-          <button class="btn-secondary" id="btn-export-catches" type="button">⬇ Export catches (CSV)<span id="exp-filters-count" class="dim"></span></button>
+          <button class="btn-secondary" id="btn-export-catches" type="button"><img class="bi" src="assets/icons/arrowup.png" alt="">Export catches (CSV)<span id="exp-filters-count" class="dim"></span></button>
           <p class="imp-cap">Downloads your catches as a spreadsheet file (.csv), honoring the filters above.</p>
-          <button class="btn-secondary" id="btn-export-sets" type="button">⬇ Export sets (CSV)</button>
+          <button class="btn-secondary" id="btn-export-sets" type="button"><img class="bi" src="assets/icons/arrowup.png" alt="">Export sets (CSV)</button>
           <p class="imp-cap">Downloads your sets as a spreadsheet file (.csv).</p>
-          <button class="btn-secondary" id="btn-export-mileage" type="button">⬇ Export mileage (CSV)</button>
+          <button class="btn-secondary" id="btn-export-mileage" type="button"><img class="bi" src="assets/icons/arrowup.png" alt="">Export mileage (CSV)</button>
           <p class="imp-cap">Downloads this line's trip log as a spreadsheet file (.csv).</p>
+          <button class="btn-secondary" id="btn-export-all-reports" type="button"><img class="bi" src="assets/icons/arrowup.png" alt="">Export all reports (ZIP)</button>
+          <p class="imp-cap">Downloads all three reports in one ZIP file — the catches report honors the filters above; sets and mileage always include everything.</p>
         </div>
         </div>
       </div>
@@ -614,33 +702,53 @@
 
   <div id="sheet-marker-form" class="sheet">
     <div class="sheet-grab"></div>
-    <div class="sheet-head"><h2>New marker</h2><button class="sheet-x" data-close type="button">×</button></div>
+    <div class="sheet-head"><h2 id="mk-form-title">New marker</h2><button class="sheet-x" data-close type="button">×</button></div>
     <div class="sheet-body">
-      <label class="field">Kind of sign</label>
-      <button type="button" class="mk-kind-choice" id="mk-kind-choice"><span id="mk-kind-name">Choose the kind of sign…</span><span aria-hidden="true">▾</span></button>
-      <label class="field" for="mk-note">Note (optional)</label>
-      <textarea id="mk-note" rows="3" placeholder="What you saw, how fresh, which way it was headed…"></textarea>
-      <label class="field">Photo (optional)</label>
+      <!-- 2026-11-25 (Tanner): the marker form joins the set-form family —
+           Kind of sign is a full-screen picker field like every other
+           list field (the bespoke kinds sheet is retired), and the
+           notes section is the set screens' notes family: composer +
+           Save note, filed entries as collapsible cards, voice memos,
+           photos. The title names the sheet's identity: New marker /
+           Edit marker, parallel to New Set / Edit Set.
+           Later the same day (Tanner, options widget): a marker carries
+           its own Name, REQUIRED like Set Name — the name is the
+           marker's headline everywhere it is identified, the kind
+           beneath it. Legacy markers have no name and still show by
+           kind; opening one to edit asks for a name before it saves. -->
+      <label class="field" for="mk-name">Name <span class="req">*</span></label>
+      <input type="text" id="mk-name" placeholder="e.g. Asparagus patch by the creek" autocomplete="off">
+      <label class="field" for="mk-kind">Kind of sign</label>
+      <input type="text" id="mk-kind" placeholder="Choose the kind of sign…" autocomplete="off">
+      <div class="suggest" id="mk-kind-suggest"></div>
+      <p class="dim mk-disclaimer">Not a foraging guide: these pins mark where things grow and what feeds on them — not what is safe to eat. Never eat a wild plant or mushroom based on this app; confirm any identification with a trusted field guide or an expert first.</p>
+      <label class="field" for="mk-note">Notes</label>
+      <textarea id="mk-note" rows="3" placeholder="Write a note — Save note files it with today's date…"></textarea>
+      <p class="dim" style="margin:8px 0 0">Tap the microphone key on your keyboard to dictate a note.</p>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn-small btn-ghost" id="btn-mk-add-note" type="button">Save note</button>
+      </div>
+      <div id="mk-note-entries" style="margin-top:8px"></div>
+      <!-- Voice memos: New and Edit alike (2026-11-25) — a new
+           marker's memos stage under a provisional owner the save
+           adopts, the set form's shape. -->
+      <div id="markerform-memos" hidden>
+      <label class="field" for="btn-mk-memo" id="mk-memos-label">Voice memos</label>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn-small btn-ghost" id="btn-mk-memo" type="button">Record memo</button>
+      </div>
+      <div id="mk-memos" style="margin-top:8px"></div>
+      </div>
+      <label class="field">Photos</label>
+      <div class="btn-row" style="margin-top:8px">
+        <button type="button" class="btn-small btn-ghost" id="btn-mk-photo">+ Add a photo</button>
+      </div>
       <div class="mk-form-photos" id="mk-form-photos"></div>
-      <button type="button" class="btn-secondary" id="btn-mk-photo">+ Add a photo</button>
       <input type="file" id="mk-photo-input" class="hidden-file" accept="image/*" multiple>
+      <div class="form-error" id="mkform-error" role="alert"></div>
       <div class="sheet-actions">
         <button class="btn-primary" id="btn-mk-save" type="button">Save marker</button>
       </div>
-    </div>
-  </div>
-
-  <div id="sheet-marker-kinds" class="sheet">
-    <div class="sheet-grab"></div>
-    <div class="sheet-head"><h2>Choose the kind</h2><button class="sheet-x" data-close type="button">×</button></div>
-    <!-- Q198: the search field is PINNED above the scroller — it used to live
-         inside .sheet-body, so scrolling the list carried it off-screen and
-         every keystroke's re-render fought iOS's focus pan. It never scrolls now. -->
-    <div class="sheet-search">
-      <input type="search" id="mk-kind-search" placeholder="Search kinds… (den, scat, morel, grape)" aria-label="Search marker kinds">
-    </div>
-    <div class="sheet-body">
-      <div id="mk-kind-list"></div>
     </div>
   </div>
 
@@ -881,18 +989,23 @@
     <div class="setfield" id="setfield-notes">
     <label class="field" for="sf-notes">Notes</label>
     <textarea id="sf-notes" placeholder="Write a note — Save note files it with today's date…"></textarea>
+    <p class="dim" id="voice-setnotes-tip" style="margin:8px 0 0">Tap the microphone key on your keyboard to dictate a note.</p>
     <div class="btn-row" style="margin-top:8px">
       <button class="btn-small btn-ghost" id="btn-add-note" type="button">Save note</button>
     </div>
-    <p class="dim" id="voice-setnotes-tip" style="margin:8px 0 0">Tap the microphone key on your keyboard to dictate a note.</p>
-    <!-- (2026-11-24, Tanner): filed entries sit BELOW the write box +
-         Save note + tip — action first, records after, the same order
-         Voice memos and Photos run in this section. The entries used
-         to render above the write box, upside-down against its own
-         section. -->
+    <!-- (2026-11-24, Tanner): filed entries sit BELOW the write box,
+         tip and Save note — action first, records after, the same
+         order Voice memos and Photos run in this section. The entries
+         used to render above the write box, upside-down against its
+         own section. (2026-11-25, Tanner): within that stack the
+         Save note button rides BELOW the dictation tip — box, tip,
+         button — on every notes-family surface that pairs them. The
+         kb-open pin still arms on the button's row alone. -->
     <div id="sf-note-entries" style="margin-top:8px"></div>
     </div>
-    <!-- Q71: memo recording + playback + deletion on the Edit Set form (edit mode only) -->
+    <!-- Q71: memo recording + playback + deletion on the set form.
+         (2026-11-25): New Set too — memos stage under a provisional
+         owner the save adopts; the edit-only gate is retired. -->
     <div id="setform-memos" hidden>
     <label class="field" for="btn-se-memo" id="se-memos-label">Voice memos</label>
     <div class="btn-row" style="margin-top:8px">
