@@ -202,8 +202,15 @@
     <div class="pane-head"><h2 id="seasons-title">Season Reminders</h2><p id="seasons-sub"></p></div>
     <div class="scroll">
       <div class="warnbox" id="seasons-disclaimer"></div>
-      <button type="button" class="btn-secondary" id="seasons-legal" style="margin:12px 0">Legal notices</button>
       <a id="seasons-warden" class="regs-link" target="_blank" rel="noopener" hidden></a>
+      <!-- (2026-11-24, Tanner's ruling on Build 67): Legal notices sits
+           BELOW Report a Violation in the ruled stack and wears the
+           yellow official-button treatment (.regs-link) like Official
+           Regulations — it opened in the Build 56 batch wearing the
+           standard green between the disclaimer and Report a
+           Violation, out of place on both counts. It opens the Legal
+           notices sheet; content and links unchanged. -->
+      <button type="button" class="regs-link" id="seasons-legal">Legal notices</button>
       <a id="seasons-regs" class="regs-link" target="_blank" rel="noopener" hidden></a>
       <div id="seasons-rules" hidden></div>
       <div id="seasons-gap" hidden></div>
@@ -301,25 +308,18 @@
            Text is the draft he approved 2026-11-22 / 2026-11-24. -->
       <div class="card">
         <p style="margin-top:0"><strong>Moving to a new phone or a fresh install?</strong></p>
-        <p class="imp-cap" style="margin-top:0">1. Under <em>Keep your data safe</em> below, tap <strong>Back up all data (JSON)</strong>, then <strong>Export photos &amp; files (ZIP)</strong>. You need both — the backup holds your lines, sets and logs; the ZIP holds your pictures and voice memos.</p>
+        <p class="imp-cap" style="margin-top:0">1. Under <em>Move data in or out</em> below, tap <strong>Back up all data (JSON)</strong>, then <strong>Export photos &amp; files (ZIP)</strong>. You need both — the backup holds your lines, sets and logs; the ZIP holds your pictures and voice memos.</p>
         <p class="imp-cap">2. In the new app, go to <em>Move data in or out</em> below → <strong>Import data</strong>: pick the JSON first, then import again and pick the ZIP.</p>
         <p class="imp-cap" style="margin-bottom:0">3. Importing the same file twice won't double anything.</p>
-      </div>
-      <div class="card setsec" id="setsec-data-safe">
-        <button type="button" class="setsec-head" id="setsec-data-safe-head" data-sec="setsec-data-safe" aria-expanded="false"><span>Keep your data safe</span><span class="setsec-chev" aria-hidden="true">›</span></button>
-        <div class="setsec-body" id="setsec-data-safe-body" hidden>
-        <div class="sheet-actions">
-          <button class="btn-secondary" id="btn-backup" type="button"><img class="bi" src="assets/icons/disk.png" alt="">Back up all data (JSON)</button>
-          <p class="imp-cap">Saves one file with everything — your lines, sets, and logs. Import it back after a reinstall or on a new phone.</p>
-          <button class="btn-secondary" id="btn-export-media" type="button">⬇ Export photos &amp; files (ZIP)</button>
-          <p class="imp-cap">Every photo and voice memo from <strong>every line</strong>, in one file. The backup above holds your data but not your pictures — this file is their backup.</p>
-        </div>
-        </div>
       </div>
       <div class="card setsec" id="setsec-data-move">
         <button type="button" class="setsec-head" id="setsec-data-move-head" data-sec="setsec-data-move" aria-expanded="false"><span>Move data in or out</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-data-move-body" hidden>
         <div class="sheet-actions">
+          <button class="btn-secondary" id="btn-backup" type="button"><img class="bi" src="assets/icons/disk.png" alt="">Back up all data (JSON)</button>
+          <p class="imp-cap">Saves one file with everything — your lines, sets, and logs. Import it back after a reinstall or on a new phone.</p>
+          <button class="btn-secondary" id="btn-export-media" type="button">⬇ Export photos &amp; files (ZIP)</button>
+          <p class="imp-cap">Every photo and voice memo from <strong>every line</strong>, in one file. The backup above holds your data but not your pictures — this file is their backup.</p>
           <button class="btn-secondary" id="btn-share-line" type="button">⬆ Share this line</button>
           <p class="imp-cap">Send the line you are on — its sets and logs only — to another trapper (AirDrop, Nearby Share, Messages, email…). On their phone it lands as a new line of their own. Photos do not ride along.</p>
           <button class="btn-secondary" id="btn-import" type="button"><img class="bi" src="assets/icons/upload.png" alt="">Import data</button>
@@ -368,7 +368,13 @@
         <h3>Where You Trap</h3>
         <label class="field" for="settings-state">State</label>
         <select id="settings-state"></select>
-        <p class="dim" style="margin-top:8px">Applies to the active trap line (<strong id="settings-line-name"></strong>). Changing the state takes effect immediately.</p>
+        <p class="dim" style="margin-top:8px">Applies to the active trap line (<strong id="settings-line-name"></strong>). Changing the state takes effect immediately — and the map jumps to the new state the next time you open it.</p>
+        <!-- Item 7 (2026-11-24, Tanner): the line's ZIP — its actual
+             ground. The state follows the ZIP, and the map's next
+             opening lands here. Per line, like the state. -->
+        <label class="field" for="settings-zip" style="margin-top:12px">ZIP Code</label>
+        <input type="text" id="settings-zip" inputmode="numeric" autocomplete="postal-code" maxlength="10" placeholder="5-digit ZIP">
+        <p class="dim" id="settings-zip-note" style="margin-top:8px">Optional. The map jumps to this ground the next time you open it — and the state above follows the ZIP.</p>
         <!-- gn (2026-11-17): the trapper's own trap tag / ID, shown back on
              the Seasons tab rules card in states that require trap tags. -->
         <label class="field" for="settings-traptag" style="margin-top:12px">My trap tag</label>
@@ -480,22 +486,25 @@
         <p class="dim" style="margin:-6px 0 10px">Adds Latitude and Longitude columns to the CSV exports you download from Data. Off by default, so a spreadsheet you share never carries your pins.</p>
         </div>
       </div>
-      <div class="card" id="fullapp-card">
-        <div class="rowline"><div><strong>Opossum Foot — Full app</strong><br><span class="dim" id="fullapp-status">Free — three dozen sets on one line.</span></div></div>
-        <div class="sheet-actions" id="fullapp-actions" style="margin-top:10px">
-          <button class="btn-primary" id="btn-unlock" type="button">Unlock the full app — $14.99</button>
-          <button class="btn-secondary" id="btn-restore-purchase" type="button">Restore purchase</button>
-        </div>
-        <p class="dim" id="fullapp-note" style="margin-top:8px">One price, once. No subscription — every future update included.</p>
-      </div>
       <div class="card setsec" id="setsec-about">
         <button type="button" class="setsec-head" id="setsec-about-head" data-sec="setsec-about" aria-expanded="false"><span>About</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-about-body" hidden>
         <div class="rowline"><img src="assets/icon-mark.png" class="about-logo" alt="Opossum Foot logo"><div><strong>Opossum Foot</strong><br><span class="dim">A pocket trapping notebook</span></div></div>
         <p class="dim">Logo &amp; brand artwork by Lydia Reichenbacher · Tight Chains Co.</p>
         <p class="dim">No accounts. No cloud. No analytics. Sponsors keep Opossum Foot free — no popups, no tracking, no nonsense.<br>Season reminders are reminders only — always verify with your state agency and local ordinances.</p>
+        <!-- 2026-11-24 (Tanner): the Full app block folds into About —
+             it sat always-open among the collapsible rows and looked
+             out of place. Contents and ids unchanged; purchase.js
+             finds every element by id. -->
+        <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+        <div class="rowline"><div><strong>Opossum Foot — Full app</strong><br><span class="dim" id="fullapp-status">Free — three dozen sets on one line.</span></div></div>
+        <div class="sheet-actions" id="fullapp-actions" style="margin-top:10px">
+          <button class="btn-primary" id="btn-unlock" type="button">Unlock the full app — $14.99</button>
+          <button class="btn-secondary" id="btn-restore-purchase" type="button">Restore purchase</button>
+        </div>
+        <p class="dim" id="fullapp-note" style="margin-top:8px">One price, once. No subscription — every future update included.</p>
+        </div>
         <p class="dim">Build <span id="build-stamp">—</span></p>
-        <p class="dim">Viewport <span id="viewport-stamp">—</span></p>
         </div>
       </div>
       <div class="card setsec" id="setsec-help">
@@ -515,7 +524,7 @@
         <button type="button" class="setsec-head" id="setsec-danger-head" data-sec="setsec-danger" aria-expanded="false"><span>Erase Everything</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-danger-body" hidden>
         <p class="dim" style="margin-top:0">Everything on this phone — sets, catches, photos, voice memos, licenses, landowners — gets permanently deleted. It will be gone forever. There is no undo and no cloud copy.</p>
-        <p class="dim"><strong>Back up all data (JSON)</strong> first if you want to keep a copy. The backup lives on the Data tab, under Keep your data safe.</p>
+        <p class="dim"><strong>Back up all data (JSON)</strong> first if you want to keep a copy. The backup lives on the Data tab, under Move data in or out.</p>
         <button class="btn-danger" id="btn-erase" type="button" style="width:100%">Erase all Opossum Foot data on this phone</button>
         <p class="dim" style="margin:16px 0 4px"><strong>Purge catch history.</strong> Delete old or test catch records without touching your sets. Pick a line, a date range, or both — matching records, their photos, and their voice memos are gone forever.</p>
         <label class="field" for="purge-line">Line</label>
@@ -592,7 +601,7 @@
       <textarea id="mk-note" rows="3" placeholder="What you saw, how fresh, which way it was headed…"></textarea>
       <label class="field">Photo (optional)</label>
       <div class="mk-form-photos" id="mk-form-photos"></div>
-      <button type="button" class="btn-secondary" id="btn-mk-photo">Add a photo</button>
+      <button type="button" class="btn-secondary" id="btn-mk-photo">+ Add a photo</button>
       <input type="file" id="mk-photo-input" class="hidden-file" accept="image/*" multiple>
       <div class="sheet-actions">
         <button class="btn-primary" id="btn-mk-save" type="button">Save marker</button>
@@ -837,7 +846,7 @@
       <input type="text" id="sf-missing-detail" placeholder="Officer, citation #, ..." autocomplete="off">
       <div class="suggest" id="sf-missing-detail-suggest"></div>
       <div class="photo-strip" id="sf-missing-photos" style="margin-top:8px"></div>
-      <button type="button" class="btn-small btn-secondary" id="btn-sf-missing-photo" style="margin-top:6px">Add citation photo</button>
+      <button type="button" class="btn-small btn-secondary" id="btn-sf-missing-photo" style="margin-top:6px">+ Add citation photo</button>
       <input type="file" id="sf-missing-photo-input" class="hidden-file" accept="image/*">
     </div>
     </div>
@@ -850,18 +859,23 @@
     <div class="setsec-body" id="setform-notessec-body" hidden>
     <div class="setfield" id="setfield-notes">
     <label class="field" for="sf-notes">Notes</label>
-    <div id="sf-note-entries"></div>
     <textarea id="sf-notes" placeholder="Write a note — Add note files it with today's date…"></textarea>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-add-note" type="button">＋ Add note</button>
+      <button class="btn-small btn-ghost" id="btn-add-note" type="button">＋ Add note</button>
     </div>
     <p class="dim" id="voice-setnotes-tip" style="margin:8px 0 0">Tap the microphone key on your keyboard to dictate a note.</p>
+    <!-- (2026-11-24, Tanner): filed entries sit BELOW the write box +
+         Add note + tip — action first, records after, the same order
+         Voice memos and Photos run in this section. The entries used
+         to render above the write box, upside-down against its own
+         section. -->
+    <div id="sf-note-entries" style="margin-top:8px"></div>
     </div>
     <!-- Q71: memo recording + playback + deletion on the Edit Set form (edit mode only) -->
     <div id="setform-memos" hidden>
     <label class="field" for="btn-se-memo" id="se-memos-label">Voice memos</label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-se-memo" type="button">Record memo</button>
+      <button class="btn-small btn-ghost" id="btn-se-memo" type="button">Record memo</button>
     </div>
     <!-- Q179 (2026-10-08): Tanner — memos list below the Record button -->
     <div id="se-memos" style="margin-top:8px"></div>
@@ -869,7 +883,7 @@
     <div id="setform-photos">
     <label class="field">Photos</label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-sf-photo" type="button">Add a photo</button>
+      <button class="btn-small btn-ghost" id="btn-sf-photo" type="button">+ Add a photo</button>
     </div>
     <!-- Q179: photos below the Take a photo button -->
     <div class="photo-strip" id="sf-photos" style="margin-top:8px"></div>
@@ -1020,11 +1034,11 @@
     <!-- Q177 (2026-10-08): Tanner — small field labels, consistent with Edit Set -->
     <label class="field" for="btn-log-memo" style="margin-top:12px">Voice memos</label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-log-memo" type="button">Record memo</button>
+      <button class="btn-small btn-ghost" id="btn-log-memo" type="button">Record memo</button>
     </div>
     <label class="field" for="btn-log-photo" style="margin-top:12px">Photos</label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-log-photo" type="button">Add a photo</button>
+      <button class="btn-small btn-ghost" id="btn-log-photo" type="button">+ Add a photo</button>
     </div>
     <!-- Q179: photos below the Add photo button -->
     <div class="photo-strip" id="log-photos" style="margin-top:8px"></div>
@@ -1044,7 +1058,7 @@
     <input type="date" id="log-tag-date">
     <label class="field" for="btn-log-tagphoto" style="margin-top:12px">Tag photo <span class="dim">(optional)</span></label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-log-tagphoto" type="button">Add tag photo</button>
+      <button class="btn-small btn-secondary" id="btn-log-tagphoto" type="button">+ Add tag photo</button>
     </div>
     <div class="photo-strip" id="log-tag-photos" style="margin-top:8px"></div>
     <input type="file" id="log-tag-photo-input" class="hidden-file" accept="image/*">
@@ -1073,7 +1087,7 @@
     <input type="date" id="tag-date">
     <label class="field" for="btn-tag-photo" style="margin-top:12px">Tag photo <span class="dim">(optional)</span></label>
     <div class="btn-row" style="margin-top:8px">
-      <button class="btn-small btn-secondary" id="btn-tag-photo" type="button">Add tag photo</button>
+      <button class="btn-small btn-secondary" id="btn-tag-photo" type="button">+ Add tag photo</button>
       <button class="btn-small btn-danger" id="btn-tag-photo-remove" type="button" hidden>Remove photo</button>
     </div>
     <div class="photo-strip" id="tag-photos" style="margin-top:8px"></div>
@@ -1109,7 +1123,7 @@
       <input type="date" id="pc-tag-date">
       <label class="field" for="btn-pc-tagphoto" style="margin-top:12px">Tag photo <span class="dim">(optional)</span></label>
       <div class="btn-row" style="margin-top:8px">
-        <button class="btn-small btn-secondary" id="btn-pc-tagphoto" type="button">Add tag photo</button>
+        <button class="btn-small btn-secondary" id="btn-pc-tagphoto" type="button">+ Add tag photo</button>
         <button class="btn-small btn-danger" id="btn-pc-tagphoto-remove" type="button" hidden>Remove photo</button>
       </div>
       <div class="photo-strip" id="pc-tag-photos" style="margin-top:8px"></div>
