@@ -275,31 +275,75 @@ var Tracking = (function () {
      over a frozen counter. When the app comes back to the front with
      a stale last fix, the native stream is started again; if it
      still won't answer, the watchdog falls back as at start. */
-  function checkBgPermission(bg) {
+  /* Item 22 (2026-11-25, Tanner's ruling — "Move the warning to the
+     door, before tracking starts"): the permission exchange is a
+     START-GATE now, standing where the disclosure gate stands —
+     after it, before beginTrack, before any fix is recorded. Until
+     this build, checkBgPermission ran inside beginTrack alongside
+     startNativeWatch (fire-and-forget), so the sheet rose seconds
+     into a live track, over the map, possibly after the phone was
+     pocketed. The routing is the old check's, unchanged in substance:
+       always/granted -> begin at once, no sheet.
+       prompt family -> begin at once, NO sheet (2026-11-24 law: the
+         system's own prompt, fired by startNativeWatch's
+         requestPermissions:true, is making the ask — never pile on).
+       when_in_use -> make the system ask FIRST (requestPermissions):
+         granted -> begin, no sheet; not granted -> the sheet, and
+         the track begins when the sheet is dismissed.
+       denied -> the sheet before begin, same dismissal-begins rule.
+     The sheet is guidance, not a veto: OK, the ×, or the scrim —
+     any dismissal — begins the track, which then records under
+     While Using (beginTrack's own state guard makes a second begin
+     a no-op). No native plugin (web) or a broken check -> begin at
+     once: a gate that can fail closed on a trapper's track is worse
+     than no gate. Mid-track paths (rearmIfStale, the watchdog) call
+     startNativeWatch / engageFallback only — the gate is at the
+     door only, and this function is the sheet's sole opener. */
+  var gateBeginPending = false;
+  function gateThenBegin() {
+    if (state !== 'idle') return;
+    var bg = nativeBG();
+    if (!bg || typeof bg.checkPermissions !== 'function') { beginTrack(); return; }
+    var routed = false;
+    function go() { if (!routed) { routed = true; beginTrack(); } }
+    function sheetGo() {
+      if (routed) return;
+      routed = true;
+      gateBeginPending = true;
+      openSheet('sheet-tracking-permission');
+    }
     try {
-      if (!bg || typeof bg.checkPermissions !== 'function') return;
       bg.checkPermissions().then(function (st) {
-        if (!st) return;
+        if (!st) { go(); return; }
         var b = st.backgroundLocation;
-        if (b === 'always' || b === 'granted') return;
-        /* 2026-11-24 (Tanner, fresh-install field report): 'prompt' means
-           the phone has never been asked. startNativeWatch passes
-           requestPermissions:true, so the iPhone's own prompt is making
-           the ask — this sheet must not pile on as a second ask in the
-           same sitting. The sheet's case is the returning trapper who
-           already holds While Using: no system prompt will fire for him,
-           so the guidance is his only word. */
-        if (b === 'prompt' || b === 'prompt-with-rationale' || st.location === 'prompt' || st.location === 'prompt-with-rationale') return;
+        if (b === 'always' || b === 'granted') { go(); return; }
+        if (b === 'prompt' || b === 'prompt-with-rationale' || st.location === 'prompt' || st.location === 'prompt-with-rationale') { go(); return; }
         if (b === 'when_in_use' && typeof bg.requestPermissions === 'function') {
           bg.requestPermissions({ permissions: ['backgroundLocation'] }).then(function (st2) {
             var b2 = st2 && st2.backgroundLocation;
-            if (b2 !== 'always' && b2 !== 'granted') openSheet('sheet-tracking-permission');
-          }).catch(function () { openSheet('sheet-tracking-permission'); });
+            if (b2 === 'always' || b2 === 'granted') go(); else sheetGo();
+          }).catch(function () { sheetGo(); });
         } else if (b === 'when_in_use' || b === 'denied' || st.location === 'denied') {
-          openSheet('sheet-tracking-permission');
-        }
-      }).catch(function () {});
-    } catch (e) {}
+          sheetGo();
+        } else { go(); }
+      }).catch(function () { go(); });
+    } catch (e) { go(); }
+  }
+  /* The dismissal funnel: every way off the sheet (the OK's explicit
+     handler, the ×'s data-close wiring, the scrim — and another sheet
+     taking its place, since openSheet closes first) ends in the
+     sheet losing .show. One observer on that class is therefore the
+     single hook all dismissal paths run through; it begins the
+     pending track exactly once and only when a gate is waiting. */
+  function watchGateSheet() {
+    var sh = $('sheet-tracking-permission');
+    if (!sh || typeof MutationObserver !== 'function') return;
+    new MutationObserver(function () {
+      if (gateBeginPending && !sh.classList.contains('show')) {
+        gateBeginPending = false;
+        beginTrack();
+      }
+    }).observe(sh, { attributes: true, attributeFilter: ['class'] });
   }
   function rearmIfStale() {
     if (state !== 'tracking') return;
@@ -322,16 +366,18 @@ var Tracking = (function () {
      proceeds; Not now (or the ×, or the scrim) starts nothing, asks
      nothing, and leaves the flag unset, so the next track start offers
      it again — without it, no permission flow may proceed. One honest
-     text on both platforms; the iOS 'While Using' upgrade sheet
-     (sheet-tracking-permission, checkBgPermission) keeps its own case
-     downstream and is untouched. */
+     text on both platforms. Item 22 (2026-11-25): the iOS 'While
+     Using' upgrade sheet (sheet-tracking-permission) now stands at
+     the door too — gateThenBegin runs between this gate and
+     beginTrack, so the order at every track start is disclosure,
+     then the permission exchange, then the first fix. */
   function disclosureSeen() {
     return !!(window.Store && Store.data && Store.data.trackDisclosureSeen);
   }
   function start() {
     if (state !== 'idle') return;
     if (!disclosureSeen()) { openSheet('sheet-track-disclosure'); return; }
-    beginTrack();
+    gateThenBegin();
   }
   function beginTrack() {
     if (state !== 'idle') return;
@@ -344,7 +390,9 @@ var Tracking = (function () {
     state = 'tracking';
     acquireWake();
     var bg = nativeBG();
-    if (bg) { checkBgPermission(bg); startNativeWatch(bg); }
+    /* Item 22: no permission work in here any more — the gate
+       (gateThenBegin) already ran before this door was opened. */
+    if (bg) { startNativeWatch(bg); }
     else { startWebWatch(); }
     timer = setInterval(updateBar, 500);
     $('track-bar').classList.add('show');
@@ -480,14 +528,18 @@ var Tracking = (function () {
     if (!pending) return;
     if (!Array.isArray(Store.data.trips)) Store.data.trips = [];
     var lineId = (typeof activeLine === 'function' && activeLine() || {}).id || null;
-    var cov = pending.cov;
     Store.data.trips.push({
       id: uid('trip'), lineId: lineId, createdAt: Date.now(), date: todayISO(),
       source: 'gps-track', miles: Math.round(pending.miles * 10) / 10, track: downsample(pending.pts, 400),
       /* gl: no elapsed stamp on the trip note — the timer stalls whenever
-         the phone sleeps, so saved trips were landing stamped 0:00. The
-         note is the coverage record, nothing it can't stand behind. */
-      notes: 'Passed ' + cov.passed.length + ' of ' + (cov.passed.length + cov.missed.length) + ' active sets'
+         the phone sleeps, so saved trips were landing stamped 0:00.
+         2026-11-25 (Tanner): the coverage sentence ("Passed X of Y
+         active sets") is retired from the filed note as well — it is
+         neither filed here nor exported (app.js strips the exact
+         sentence for old trips at display and CSV time). Coverage
+         itself (pending.cov) is still computed at the stop; it is a
+         readout for the moment, never a filed note. */
+      notes: ''
     });
     Store.save();
     pending = null;
@@ -1142,6 +1194,29 @@ var Tracking = (function () {
      lays a snapshot of the points on this stack; Undo pops one back.
      The stack lives and dies with the fix session. */
   var fixUndoStack = [], fixDragSnap = null, fixDragFrom = null, fixDragStack = null;
+  /* 2026-11-25 (Tanner, Build 96 field failure): the Cancel discard
+     confirmation gated on the UNDO STACK — a proxy for "work to
+     lose" — and the proxy leaks: fixJoin mutates the working copy
+     with no snapshot at all, and a drag ending within the 0.5 m
+     snapshot threshold moves its point without pushing one. His
+     edit left the stack empty, so Cancel fell straight through to
+     the discard and only the after-toast reported it. The gate is
+     now the working copy itself: fixPristine is the stored track
+     as the session opened, and ANY difference — drag, cut, join,
+     removal, drawn stretch, present or future — is work to lose
+     and asks first. An untouched session (or one edited back to
+     the stored shape) has nothing to lose and cancels straight
+     out, the no-changes state the design intends. */
+  var fixPristine = null;
+  function fixDirty() {
+    if (!fixPts || !fixPristine) return false;
+    if (fixPts.length !== fixPristine.length) return true;
+    for (var i = 0; i < fixPts.length; i++) {
+      var p = fixPts[i], q = fixPristine[i];
+      if (p.lat !== q.lat || p.lng !== q.lng || p.seg !== q.seg || !!p.hand !== !!q.hand) return true;
+    }
+    return false;
+  }
   function fixSnapshot() {
     return fixPts.map(function (p) {
       var o = { lat: p.lat, lng: p.lng, seg: p.seg };
@@ -1428,6 +1503,7 @@ var Tracking = (function () {
     fixPts = fixFlatten(track);
     fixSel = { a: null, b: null };
     fixUndoStack = []; fixDragSnap = null; fixDragFrom = null; /* hu (Q280): a fresh session, an empty stack */
+    fixPristine = fixSnapshot(); /* 2026-11-25: the stored track, for the Cancel gate below */
     fixCb = cb || null;
     editorLock(true);
     fixDraw(); fixBar();
@@ -1437,7 +1513,7 @@ var Tracking = (function () {
   }
   function endFix() {
     fixPts = null; fixSel = null; fixCb = null; fixMks = null; fixLines = null;
-    fixUndoStack = []; fixDragSnap = null; fixDragFrom = null; /* hu (Q280) */
+    fixUndoStack = []; fixDragSnap = null; fixDragFrom = null; fixPristine = null; /* hu (Q280) */
     fixDrawMode = false; fixRun = null; fixDrawMsg = null;
     if (fixLayer) fixLayer.clearLayers();
     fixBar();
@@ -1791,6 +1867,9 @@ var Tracking = (function () {
        was dead on the phone and the sheet could only be escaped via the
        × or the scrim. Wire it explicitly, like every other sheet action. */
     var pk = $('btn-tracking-permission-ok'); if (pk) pk.onclick = function () { closeSheets(); };
+    /* Item 22: arm the gate sheet's dismissal funnel (any dismissal
+       of a gate-raised sheet begins the pending track). */
+    watchGateSheet();
     /* 2026-11-24 (next build): the prominent disclosure's two doors.
        Continue records the showing in the settings storage and walks
        straight into the track start the disclosure was guarding;
@@ -1798,7 +1877,7 @@ var Tracking = (function () {
     var dsc = $('btn-track-disclosure-continue'); if (dsc) dsc.onclick = function () {
       if (window.Store && Store.data) { Store.data.trackDisclosureSeen = true; Store.save(); }
       closeSheets();
-      beginTrack();
+      gateThenBegin(); /* Item 22: Continue walks into the permission gate, not past it */
     };
     var dsn = $('btn-track-disclosure-notnow'); if (dsn) dsn.onclick = function () { closeSheets(); };
     var rf2 = $('btn-route-fix'); if (rf2) rf2.onclick = function () { if (savedCtx && savedCtx.fix) savedCtx.fix(); };
@@ -1806,13 +1885,14 @@ var Tracking = (function () {
     var fa = $('btn-fix-apply'); if (fa) fa.onclick = fixApply;
     var fd = $('btn-fix-done'); if (fd) fd.onclick = fixDone;
     /* 2026-11-24 (next build): Cancel here throws the whole edit away
-       (fixCancel) — it asked nothing, only toasted after the fact. When
-       the session holds real work (every drag, cut, join, removal and
-       drawn stretch pushes the undo stack, so a non-empty stack IS the
-       work), ask first through the same modal. An untouched session has
-       nothing to lose and still cancels straight out. */
+       (fixCancel) — it asked nothing, only toasted after the fact, so
+       real work asked first through the same modal. 2026-11-25: the
+       gate was the undo stack, and the stack leaks (see fixDirty) —
+       Tanner's Build 96 edit discarded in silence. The gate is now
+       the working copy vs the stored track: any difference asks;
+       an untouched session still cancels straight out. */
     var fc = $('btn-fix-cancel'); if (fc) fc.onclick = function () {
-      if (fixUndoStack && fixUndoStack.length) {
+      if (fixDirty()) {
         askConfirm('Discard this edit?', 'The changes you made to this route have not been saved. This cannot be undone.', 'Discard', fixCancel);
         return;
       }
@@ -1841,5 +1921,5 @@ var Tracking = (function () {
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
   else wire();
-  return { attach: attach, start: start, syncFab: syncFab, active: function () { return state !== 'idle'; }, drawSaved: drawSaved, clearSaved: clearSaved, drawnTripId: function () { return savedCtx && savedCtx.tripId ? savedCtx.tripId : null; }, /* if (Q298): Paperwork's trip button reads the map's truth */ rescuePending: rescuePending, startFix: startFix, endFix: endFix, mapTap: mapTap, startDrawRoute: startDrawRoute, endDrawRoute: endDrawRoute, _test: { hav: hav, start: start, onPos: onPos, stop: stop, state: function () { return state; }, pts: function () { return pts; }, miles: function () { return distM / 1609.344; }, segs: function () { return segments(pts).length; }, downsample: downsample, wake: function () { return !!wakeSentinel; }, fixTap: fixTap, fixApply: fixApply, fixJoin: fixJoin, fixDone: fixDone, fixCancel: fixCancel, fixMarkers: function () { return fixMks; }, fixPoints: function () { return fixPts ? fixPts.map(function (p) { var o = { lat: p.lat, lng: p.lng, seg: p.seg }; if (p.hand) o.hand = 1; return o; }) : null; }, fixState: function () { return { active: !!fixPts, n: fixPts ? fixPts.length : 0, sel: fixSel, shape: fixPts ? fixShape(fixPts) : null, miles: fixPts ? fixMiles(fixPts) : null, locked: document.body.classList.contains('editor-lock'), undo: fixUndoStack.length }; }, fixDraw: function () { return { mode: fixDrawMode, anchored: !!fixRun, run: fixRun ? fixRun.pts.length : 0, target: !!(fixRun && fixRun.tPt), end: fixRun ? fixRun.end : null, label: ($('fix-bar-label') || {}).textContent || '' }; }, fixDrawEnter: fixDrawEnter, fixMkAt: function (ix) { return fixMks ? fixMks[ix] : null; }, fixLinePts: function () { var out = []; if (fixLines) fixLines.eachLayer(function (l) { if (l.getLatLngs) out.push(l.getLatLngs().map(function (ll) { return [ll.lat, ll.lng]; })); }); return out; }, fixRemove: fixRemovePoint, fixLabel: function () { return ($('fix-bar-label') || {}).textContent || ''; }, fixDrawExit: fixDrawExit, fixDrawTap: fixDrawTapPoint, fixDrawUndo: fixDrawUndo, fixDrawStop: fixDrawStop, fixDrawConnect: fixDrawConnect, mapTap: mapTap, startDrawRoute: startDrawRoute, endDrawRoute: endDrawRoute, drawRoute: function () { return { active: !!drawPts, n: drawPts ? drawPts.length : 0, miles: drawPts ? Math.round((drawMeters() / 1609.344) * 10) / 10 : 0, locked: document.body.classList.contains('editor-lock'), barShown: !!($('draw-bar') && $('draw-bar').classList.contains('show')), saveDisabled: !!($('btn-draw-save') && $('btn-draw-save').disabled), pts: drawPts ? drawPts.map(function (p) { return [p.lat, p.lng]; }) : [], closed: drawClosed, sel: drawSel, offer: drawOffer, label: ($('draw-bar-label') || {}).textContent || '', applyShown: !!($('btn-draw-apply') && $('btn-draw-apply').style.display !== 'none'), applyText: ($('btn-draw-apply') || {}).textContent || '', barMiles: ($('draw-bar-miles') || {}).textContent || '' }; }, drawMarkers: function () { return drawMks; }, drawTapPoint: drawTapPoint, drawApply: drawApply, routeBar: function () { var bar = $('route-bar'), fx = $('btn-route-fix'), dn = $('btn-route-done'); return { shown: !!(bar && bar.classList.contains('show')), fix: !!(fx && fx.style.display !== 'none'), done: !!(dn && dn.style.display !== 'none'), ctx: !!savedCtx, drawn: savedLayer ? savedLayer.getLayers().length : 0, onMap: !!(mapRef && savedLayer && mapRef.hasLayer(savedLayer)) }; } } };
+  return { attach: attach, start: start, syncFab: syncFab, active: function () { return state !== 'idle'; }, drawSaved: drawSaved, clearSaved: clearSaved, drawnTripId: function () { return savedCtx && savedCtx.tripId ? savedCtx.tripId : null; }, /* if (Q298): Paperwork's trip button reads the map's truth */ rescuePending: rescuePending, startFix: startFix, endFix: endFix, mapTap: mapTap, startDrawRoute: startDrawRoute, endDrawRoute: endDrawRoute, _test: { hav: hav, start: start, onPos: onPos, stop: stop, state: function () { return state; }, pts: function () { return pts; }, miles: function () { return distM / 1609.344; }, segs: function () { return segments(pts).length; }, downsample: downsample, wake: function () { return !!wakeSentinel; }, fixTap: fixTap, fixApply: fixApply, fixJoin: fixJoin, fixDone: fixDone, fixCancel: fixCancel, fixMarkers: function () { return fixMks; }, fixPoints: function () { return fixPts ? fixPts.map(function (p) { var o = { lat: p.lat, lng: p.lng, seg: p.seg }; if (p.hand) o.hand = 1; return o; }) : null; }, fixState: function () { return { active: !!fixPts, n: fixPts ? fixPts.length : 0, sel: fixSel, shape: fixPts ? fixShape(fixPts) : null, miles: fixPts ? fixMiles(fixPts) : null, locked: document.body.classList.contains('editor-lock'), undo: fixUndoStack.length, dirty: fixDirty() }; }, fixDraw: function () { return { mode: fixDrawMode, anchored: !!fixRun, run: fixRun ? fixRun.pts.length : 0, target: !!(fixRun && fixRun.tPt), end: fixRun ? fixRun.end : null, label: ($('fix-bar-label') || {}).textContent || '' }; }, fixDrawEnter: fixDrawEnter, fixMkAt: function (ix) { return fixMks ? fixMks[ix] : null; }, fixLinePts: function () { var out = []; if (fixLines) fixLines.eachLayer(function (l) { if (l.getLatLngs) out.push(l.getLatLngs().map(function (ll) { return [ll.lat, ll.lng]; })); }); return out; }, fixRemove: fixRemovePoint, fixLabel: function () { return ($('fix-bar-label') || {}).textContent || ''; }, fixDrawExit: fixDrawExit, fixDrawTap: fixDrawTapPoint, fixDrawUndo: fixDrawUndo, fixDrawStop: fixDrawStop, fixDrawConnect: fixDrawConnect, mapTap: mapTap, startDrawRoute: startDrawRoute, endDrawRoute: endDrawRoute, drawRoute: function () { return { active: !!drawPts, n: drawPts ? drawPts.length : 0, miles: drawPts ? Math.round((drawMeters() / 1609.344) * 10) / 10 : 0, locked: document.body.classList.contains('editor-lock'), barShown: !!($('draw-bar') && $('draw-bar').classList.contains('show')), saveDisabled: !!($('btn-draw-save') && $('btn-draw-save').disabled), pts: drawPts ? drawPts.map(function (p) { return [p.lat, p.lng]; }) : [], closed: drawClosed, sel: drawSel, offer: drawOffer, label: ($('draw-bar-label') || {}).textContent || '', applyShown: !!($('btn-draw-apply') && $('btn-draw-apply').style.display !== 'none'), applyText: ($('btn-draw-apply') || {}).textContent || '', barMiles: ($('draw-bar-miles') || {}).textContent || '' }; }, drawMarkers: function () { return drawMks; }, drawTapPoint: drawTapPoint, drawApply: drawApply, routeBar: function () { var bar = $('route-bar'), fx = $('btn-route-fix'), dn = $('btn-route-done'); return { shown: !!(bar && bar.classList.contains('show')), fix: !!(fx && fx.style.display !== 'none'), done: !!(dn && dn.style.display !== 'none'), ctx: !!savedCtx, drawn: savedLayer ? savedLayer.getLayers().length : 0, onMap: !!(mapRef && savedLayer && mapRef.hasLayer(savedLayer)) }; } } };
 })();
