@@ -490,7 +490,13 @@ body[data-pinscheme="pastel"] { --pin-active:#a9d6a5; --pin-sprung:#eacd7d; --pi
    "more below." One rule on the shared .suggest container, so every
    combo/suggest list in every edit sheet and modal lives the same way
    — his addendum: all the lists, to keep consistent. The choices and
-   their order are untouched; only the container changed. */
+   their order are untouched; only the container changed.
+   (Finding #2, same night: 286px is the CEILING, not the whole cap.
+   With the keyboard up, the visible band is ~460 tall and this box's
+   bottom fell below it — the cap computed but could not be seen, and
+   the list read as the old sprawl on his phone. fitSuggestCap in
+   js/app.js fits each open to the band it actually gets, inline,
+   never above this rule's 286.) */
 .suggest.show { max-height: 286px; overflow-y: auto; overflow-x: hidden;
   -webkit-overflow-scrolling: touch; }
 .suggest-item { display: block; width: 100%; text-align: left; font-size: 15px; color: var(--text);
