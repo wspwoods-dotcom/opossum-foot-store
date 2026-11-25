@@ -550,20 +550,26 @@ body[data-pinscheme="pastel"] { --pin-active:#a9d6a5; --pin-sprung:#eacd7d; --pi
   font-size: 13px; font-weight: 600; line-height: 1; padding: 0 13px; }
 .attr-row-x:active { background: var(--line); }
 /* Q236 (2026-11-07) put a one-tap clear × inside manual-entry inputs;
-   Tanner's ruling 2026-11-25 retired it on form fields: ONE labeled
-   "Clear" pill BESIDE every filled field — same pill family as the
-   attractant rows' "Remove" pill, each labeled by its job — shown only
-   while the field is filled, and every fillable field gets one (two
-   generations had drifted: some fields carried the ×, some had no
-   clear at all). The wrap is now the flex row holding box + pill.
+   Tanner's ruling 2026-11-25 retired it on form fields: ONE clear
+   control BESIDE every filled field — same pill family as the
+   attractant rows' "Remove" pill — shown only while the field is
+   filled, and every fillable field gets one (two generations had
+   drifted: some fields carried the ×, some had no clear at all).
+   The wrap is now the flex row holding box + control.
    The one inside × left in the app is the live-search boxes' (they
-   hold no value — they filter a list), on the .search-wrap variant. */
+   hold no value — they filter a list), on the .search-wrap variant.
+   (His later ruling, same day): the beside-the-box control's face is
+   a ×, not the labeled "Clear" pill — the .clear-x variant below
+   makes it a round 38px tap target in the Remove pill's dark/gold
+   (the glyph rides var(--accent)); the "Remove" pill stays labeled. */
 .clear-wrap { display: flex; gap: 8px; align-items: center; }
 .clear-wrap > input { flex: 1; min-width: 0; }
 .attr-row .clear-wrap { flex: 1; min-width: 0; }
 .clear-pill { flex: 0 0 auto; height: 38px; border-radius: 999px;
   background: var(--panel); color: var(--muted); border: 1px solid var(--line);
   font-size: 13px; font-weight: 600; line-height: 1; padding: 0 13px; }
+.clear-pill.clear-x { width: 38px; padding: 0; border-radius: 50%;
+  color: var(--accent); font-size: 18px; }
 .clear-pill:active { background: var(--line); }
 .clear-pill[hidden] { display: none; }
 .clear-wrap.search-wrap { position: relative; display: block; }
@@ -595,6 +601,10 @@ body.route-locked #tabbar { pointer-events: none; opacity: .35; }
 /* Q79 (2026-10-01): suggestion rows with per-entry delete for user-typed items. */
 .suggest-row { display: flex; align-items: center; }
 .suggest-row .suggest-item { flex: 1; text-align: left; }
+/* Ruling A (2026-11-25): an in-bag sponsor row sits inside a .suggest-row
+   wrapper so its remove-× can ride as a sibling; the sponsor box itself
+   flexes like a .suggest-item so the row keeps the catalog rows' width. */
+.suggest-row > .suggest-sponsor { flex: 1; min-width: 0; }
 .suggest-del { background: none; border: none; color: var(--dim); font-size: 18px; line-height: 1; padding: 8px 10px; cursor: pointer; }
 .suggest-del:active { color: #f0a49c; }
 /* Q78 (2026-10-01): example hint above each attractant field. */
@@ -742,6 +752,13 @@ html.kb-open .note-row-armed {
 .setsec.open .setsec-chev { transform: rotate(90deg); }
 .setsec-body { padding-bottom: 14px; }
 .setsec-body[hidden] { display: none; }
+/* 2026-11-25 (item 9): "Step-by-step" expanders inside the Data tab's
+   Move card — the same collapsible bar, sized for a sub-section. */
+.steps-sec { border-top: 1px solid var(--line); margin: 2px 0 12px; }
+.steps-sec .setsec-head { font-size: 15px; font-weight: 600; padding: 9px 0; }
+.steps-sec .setsec-body { padding-bottom: 8px; }
+.steps-sec .steps-list { margin: 0; padding-left: 20px; }
+.steps-sec li, .steps-sec .setsec-body p { line-height: 1.45; margin: 6px 0; }
 /* Tanner 2026-10-07: per-line blocks inside the Paperwork Mileage section —
    line header with total + Log trip, trip rows below like everywhere else. */
 .pm-line { border-top: 1px solid var(--line); padding: 10px 0 4px; margin-top: 10px; }
@@ -1317,10 +1334,10 @@ body.editor-lock #btn-track { pointer-events: none; opacity: .45; }
    explanation under its label (Tanner's approved copy table) — same .dim
    voice as the Feature Toggles explanations. */
 .checkgrid .tnote { margin: 0 0 8px; }
-/* Q103: coordinate footer, small and dim, tap to copy — only rendered when
-   the Privacy toggle is on. */
+/* Q103: coordinate footer, small and dim — only rendered when the Privacy
+   toggle is on. Item 14 (2026-11-25): display only; the tap-to-copy and
+   its :active press affordance are gone with the behavior. */
 .coords-bottom { font-size: 11px; color: var(--muted); text-align: center; margin: 12px 0 4px; }
-.coords-bottom:active { opacity: .6; }
 
 /* ---- weather tab ---- */
 .wx-temp { font-size: 32px; font-weight: 800; }
@@ -1664,6 +1681,34 @@ body.placing #route-back-chip { display: none; }
 .bulk-pick-row { margin-bottom: 10px; }
 #modal.sheet-dress .modal-card { border: 2px solid var(--line); border-radius: 20px; padding: 20px 16px 24px; }
 #modal.sheet-dress h3 { font-size: 21px; }
+/* Item 21 (2026-11-25, Tanner's field recording on Build 96): the tall
+   FORM modals buried their action bar. A plain modal card scrolls its
+   whole contents, so on any form taller than the card (landowner
+   798/860px of content in a 707px card, trip editor 918/984, bulk
+   Edit-all 861, species detail 1301) Cancel/Save sat at the foot of
+   the scroll — clipped at the card's fold on the bench, and on his
+   phone peeking untappable above the tab bar until a field raised
+   the keyboard and the WebView's own shifting brought it into reach.
+   The Build 92 keyboard regime never enrolled .modal-card: its
+   kb-open inset rules cover .scroll and .sheet-body only. The sheets
+   never had the defect — bottom-anchored, height-capped, their body
+   is a regime scroller, and sheet-picklist/sheet-ms dock their
+   actions outright. The docked-modal family (showDockedModal in
+   app.js) gives a tall modal the sheets' shape: the card is a flex
+   column — a .modal-scroll region (title + fields) over a
+   .modal-actions footer that is flex 0 0 auto and never leaves the
+   card. Under kb-open the overlay's bottom padding absorbs
+   --kb-inset (still the single height source) so the card centers
+   in the VISIBLE band, and its height caps at that band: the footer
+   rides above the keyboard, the regime's doctrine kept. Plain
+   showModal dialogs — confirms, viewers, short forms that fit —
+   are untouched. This block stands after the sheet-dress rules so
+   the bulk family (which wears both dresses) takes padding: 0 here. */
+#modal.form-dock .modal-card { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+#modal.form-dock .modal-scroll { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; padding: 22px 22px 12px; min-height: 0; flex: 1 1 auto; }
+#modal.form-dock .modal-actions { flex: 0 0 auto; padding: 12px 22px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--sheet); }
+html.kb-open #modal.form-dock { padding-bottom: calc(24px + var(--kb-inset, 0px)); }
+html.kb-open #modal.form-dock .modal-card { max-height: 100%; }
 .bulk-dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff; vertical-align: -2px; }
 .show-row { display: flex; align-items: center; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--line); font-size: 17px; cursor: pointer; }
 .show-row input[type="checkbox"] { margin-left: auto; width: 22px; height: 22px; accent-color: #7fa650; }
