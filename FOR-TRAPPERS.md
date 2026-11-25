@@ -482,7 +482,7 @@ a lost phone, a wiped phone, or clearing your browser data can take your
 whole season with it. Open the **Data** tab — backups, sharing, and all
 the reports live in that one place.
 
-- **Keep your data safe** is the top card: **"Back up all data (JSON)"** — sets,
+- **Move data in or out** holds the backup buttons: **"Back up all data (JSON)"** — sets,
   catches, lines, landowners, the lot. Importing it restores everything.
   Do this one, not just the CSVs.
 - **Your pictures ride separately:** **Export photos & files (ZIP)** saves
