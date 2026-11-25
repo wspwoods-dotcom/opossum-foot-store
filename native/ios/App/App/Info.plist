@@ -78,8 +78,6 @@
 	<string>Opossum Foot lets you choose photos from your library to attach to your sets, catches, tags, and licenses. Your photos stay on your phone.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Opossum Foot uses the microphone so you can record voice notes on your sets and catches. Your recordings stay on your phone.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Opossum Foot uses speech recognition so you can dictate notes instead of typing them.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
