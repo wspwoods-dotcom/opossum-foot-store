@@ -183,6 +183,11 @@ button, .btn {
    the regulations link keeps the yellow. */
 #seasons-warden { background: #6e2f28; color: #f5cf7a; }
 #seasons-warden .dim { color: #f5cf7a; }
+/* (2026-11-24, Tanner): Legal notices wears .regs-link like Official
+   Regulations, but it is a <button> where its siblings are <a> — a
+   button sizes to its content (measured 173.6px against their 362px),
+   so the width is stated outright to keep the stack's geometry one. */
+#seasons-legal { width: 100%; }
 .btn-danger { background: #3a1f1b; color: #f0a49c; border: 1px solid #6e2f28; }
 .btn-small { min-height: 44px; font-size: 15px; padding: 8px 14px; width: auto; }
 button:disabled { opacity: .45; }
@@ -474,6 +479,20 @@ body[data-pinscheme="pastel"] { --pin-active:#a9d6a5; --pin-sprung:#eacd7d; --pi
 /* Q11: saved-entry suggestions under the bait/lure/urine inputs */
 .suggest { display: none; margin-top: -2px; }
 .suggest.show { display: block; } /* ik (Q306): the ij overlay is reverted — the list sits in the page, as before */
+/* (2026-11-24, Tanner's ruling on Build 67): the list lives in a capped,
+   internally-scrolling box again. Before ho/Q249 these fields were
+   native selects — a compact picker that scrolled inside itself and
+   never moved the form. Q249's combo lists render in the page with no
+   cap, so a full list (Set Type: 16 rows x 52px = 832px) poured down
+   the sheet and shoved every field below it out of place — his words:
+   "I liked the way it was before with the scrolling." The cap is
+   5.5 rows (286px): five full rows plus a half-row peek that reads as
+   "more below." One rule on the shared .suggest container, so every
+   combo/suggest list in every edit sheet and modal lives the same way
+   — his addendum: all the lists, to keep consistent. The choices and
+   their order are untouched; only the container changed. */
+.suggest.show { max-height: 286px; overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; }
 .suggest-item { display: block; width: 100%; text-align: left; font-size: 15px; color: var(--text);
   background: var(--card); border: 1px solid var(--line); border-top: none; padding: 9px 12px; cursor: pointer; }
 .suggest-item:first-child { border-top: 1px solid var(--line); border-radius: 10px 10px 0 0; }
@@ -1370,6 +1389,16 @@ body.demo-shot #view-main { box-shadow: 0 0 80px rgba(0,0,0,.65); min-height: 10
    too long); the Sponsored pill shrinks a touch. */
 .suggest-name { font-size: 13.5px; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+/* (2026-11-24, Tanner): the bag form of a sponsored row — the name block
+   becomes a flex line so the product name ellipsizes and the quiet
+   "In your bag" provenance tag always survives at its right. The name
+   block still flexes as one item of .suggest-fill, so the pill and the
+   logo eye keep the catalog row's exact positions. */
+.suggest-name-bag { display: flex; align-items: baseline; gap: 7px; overflow: visible; }
+.suggest-name-bag .sn-text { white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; min-width: 0; }
+.bag-tag { flex: 0 0 auto; font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  color: var(--muted); white-space: nowrap; }
 .sponsor-eye { flex: 0 0 46px; background: none; border: none; border-left: 1px solid var(--line);
   font-size: 19px; color: var(--muted); cursor: pointer; min-height: 0;
   display: flex; align-items: center; justify-content: center; padding: 5px; }
