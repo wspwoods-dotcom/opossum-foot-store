@@ -203,14 +203,15 @@
     <div class="scroll">
       <div class="warnbox" id="seasons-disclaimer"></div>
       <a id="seasons-warden" class="regs-link" target="_blank" rel="noopener" hidden></a>
-      <!-- (2026-11-24, Tanner's ruling on Build 67): Legal notices sits
-           BELOW Report a Violation in the ruled stack and wears the
-           yellow official-button treatment (.regs-link) like Official
-           Regulations — it opened in the Build 56 batch wearing the
-           standard green between the disclaimer and Report a
-           Violation, out of place on both counts. It opens the Legal
-           notices sheet; content and links unchanged. -->
-      <button type="button" class="regs-link" id="seasons-legal">Legal notices</button>
+      <!-- (2026-11-25, Tanner — reversing the Build 67 placement):
+           Legal notices is OUT of Seasons entirely. Most of its
+           content is the app's own legal matter, not season law, and
+           in the yellow official coat between Report a Violation and
+           Official Regulations it read as season law. Its only home
+           is Settings → Help & Legal (#btn-legal, btn-secondary),
+           beside the Terms and Privacy links. The stack here is:
+           disclaimer → Report a Violation → Official Regulations →
+           Trap & Snare Rules → Tags → Deadlines & Permits → search. -->
       <a id="seasons-regs" class="regs-link" target="_blank" rel="noopener" hidden></a>
       <div id="seasons-rules" hidden></div>
       <div id="seasons-gap" hidden></div>
@@ -263,6 +264,25 @@
           <div id="mytags-list"></div>
         </div>
       </div>
+      <!-- (2026-11-25, Tanner): My Trap Tag — the trapper's own trap
+           tag text, moved here from Settings → Where You Trap. That
+           card is geography (state, ZIP, home ground); the tag is his
+           legal identity — a license-and-tag instrument — and
+           Paperwork is where those live, beside the License Wallet
+           and the catch tag records in My Tags. The DATA never moved:
+           the input keeps its id and its Store.data.trapTag binding
+           (existing values carry over untouched), and Seasons still
+           shows the text beside the state's tag rule — only the edit
+           door moved. Its own section, never gated by the Tag records
+           toggle: that switch governs catch tag records, not this. -->
+      <div class="card setsec" id="setsec-traptag">
+        <button type="button" class="setsec-head" id="setsec-traptag-head" data-sec="setsec-traptag" aria-expanded="false"><span>My Trap Tag</span><span class="setsec-chev" aria-hidden="true">›</span></button>
+        <div class="setsec-body" id="setsec-traptag-body" hidden>
+          <label class="field" for="settings-traptag">My trap tag</label>
+          <input type="text" id="settings-traptag" placeholder="Name &amp; address, or state ID number" autocomplete="off">
+          <p class="dim" style="margin-top:8px">What your trap tags say — many states require your name and address, or a state-issued ID number, on every trap. Kept on this phone only; it shows on the Seasons tab with your state's tag rule.</p>
+        </div>
+      </div>
       <div class="card setsec" id="setsec-landowner">
         <button type="button" class="setsec-head" id="setsec-landowner-head" data-sec="setsec-landowner" aria-expanded="false"><span>Landowner Notebook</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-landowner-body" hidden>
@@ -286,7 +306,8 @@
            Paperwork — Deadlines & Permits stands on the Seasons tab
            now, an official item under the Tags card
            (renderSeasonsDeadlines). Paperwork keeps License Wallet,
-           My Tags, the Landowner Notebook, and Route and Mileage. -->
+           My Tags, My Trap Tag (moved in from Settings 2026-11-25),
+           the Landowner Notebook, and Route and Mileage. -->
     </div>
   </div>
 
@@ -375,11 +396,11 @@
         <label class="field" for="settings-zip" style="margin-top:12px">ZIP Code</label>
         <input type="text" id="settings-zip" inputmode="numeric" autocomplete="postal-code" maxlength="10" placeholder="5-digit ZIP">
         <p class="dim" id="settings-zip-note" style="margin-top:8px">Optional. The map jumps to this ground the next time you open it — and the state above follows the ZIP.</p>
-        <!-- gn (2026-11-17): the trapper's own trap tag / ID, shown back on
-             the Seasons tab rules card in states that require trap tags. -->
-        <label class="field" for="settings-traptag" style="margin-top:12px">My trap tag</label>
-        <input type="text" id="settings-traptag" placeholder="Name &amp; address, or state ID number" autocomplete="off">
-        <p class="dim" style="margin-top:8px">What your trap tags say — many states require your name and address, or a state-issued ID number, on every trap. Kept on this phone only; it shows on the Seasons tab with your state's tag rule.</p>
+        <!-- gn (2026-11-17): the trapper's own trap tag / ID lived here
+             until 2026-11-25 — it moved to Paperwork → My Trap Tag
+             (Tanner's ruling: Where You Trap is geography; the tag is
+             a license-and-tag instrument). The field itself stands in
+             pane-licenses below, same id, same Store.data.trapTag. -->
         <p class="dim" id="settings-home-status" style="margin:12px 0 8px">Not set — the map opens on your trapping state.</p>
         <button class="btn-secondary" id="btn-change-home" type="button">Change home location</button>
       </div>
