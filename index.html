@@ -1157,6 +1157,19 @@
 
 <div id="toast"></div>
 
+<!-- Full-screen picker (2026-11-25, Tanner's ruling): the searchable
+     suggestion/combo surfaces live here now — search pinned at the
+     top, the open field's .suggest box moved into the list area by
+     js/app.js's Picker while a session runs. -->
+<div id="picker" class="picker">
+  <div class="picker-head">
+    <h2 id="picker-title">Pick</h2>
+    <button type="button" id="picker-x" aria-label="Close picker">×</button>
+  </div>
+  <div class="picker-searchrow"><input type="text" id="picker-q" autocomplete="off"></div>
+  <div class="picker-list" id="picker-list"></div>
+</div>
+
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="js/season-data.js"></script>
 <script src="js/gap-data.js"></script>
@@ -1170,5 +1183,6 @@
 <script src="js/markers.js"></script>
 <script src="js/tracking.js"></script>
 <script src="js/purchase.js"></script>
+<script src="js/keyboard.js"></script>
 </body>
 </html>
