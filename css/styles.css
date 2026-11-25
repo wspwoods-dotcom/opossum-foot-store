@@ -183,11 +183,6 @@ button, .btn {
    the regulations link keeps the yellow. */
 #seasons-warden { background: #6e2f28; color: #f5cf7a; }
 #seasons-warden .dim { color: #f5cf7a; }
-/* (2026-11-24, Tanner): Legal notices wears .regs-link like Official
-   Regulations, but it is a <button> where its siblings are <a> — a
-   button sizes to its content (measured 173.6px against their 362px),
-   so the width is stated outright to keep the stack's geometry one. */
-#seasons-legal { width: 100%; }
 .btn-danger { background: #3a1f1b; color: #f0a49c; border: 1px solid #6e2f28; }
 .btn-small { min-height: 44px; font-size: 15px; padding: 8px 14px; width: auto; }
 button:disabled { opacity: .45; }
@@ -514,8 +509,18 @@ body[data-pinscheme="pastel"] { --pin-active:#a9d6a5; --pin-sprung:#eacd7d; --pi
    picker the moved .suggest box flows at natural height — the
    286px inline cap above belongs to the retired inline era (the
    picker-list scrolls, not the box). */
+/* (2026-11-25): the picker layers by ORDER, not one flat number. At
+   rest it sits at 975 — above the sheets (950) that host most of its
+   fields, below #modal (1000), so a sponsor bio opened from a picker
+   row's eye rides OVER the picker (the bio-detour rule). But some
+   picker fields live IN a modal (the bulk-edit combos, the line-name
+   field): when a modal is already showing as the picker opens,
+   Picker.open adds .over-modal and the picker covers the modal
+   instead — at a flat 1050 the bio could never surface, and at a
+   flat 975 the bulk picker opened under its modal, untappable. */
 .picker { position: fixed; inset: 0; z-index: 975; background: var(--bg); color: var(--text);
   display: none; flex-direction: column; padding-top: env(safe-area-inset-top); }
+.picker.over-modal { z-index: 1050; }
 .picker.show { display: flex; }
 .picker-head { position: relative; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; padding: 14px 56px 4px; }
 .picker-head h2 { margin: 0; font-size: 21px; font-weight: 800; text-align: center; }
@@ -537,16 +542,32 @@ body[data-pinscheme="pastel"] { --pin-active:#a9d6a5; --pin-sprung:#eacd7d; --pi
    under each row, "add another" below the stack */
 .attr-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 .attr-row .attr-row-input { flex: 1; min-width: 0; }
-.attr-row-x { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%;
-  background: var(--panel); color: var(--muted); border: 1px solid var(--line);
-  font-size: 20px; line-height: 1; padding: 0; }
+/* (2026-11-25, Tanner): the attr-row remover is a labeled "Remove"
+   pill in the app's dark/gold chrome — it used to be a bare round ×,
+   indistinguishable from the in-box clear × it sits beside. */
+.attr-row-x { flex: 0 0 auto; height: 38px; border-radius: 999px;
+  background: var(--panel); color: var(--accent); border: 1px solid var(--line);
+  font-size: 13px; font-weight: 600; line-height: 1; padding: 0 13px; }
 .attr-row-x:active { background: var(--line); }
-/* Q236 (2026-11-07): the one-tap clear × inside manual-entry inputs. The
-   wrap keeps the input full-width; the × sits over the input's right edge
-   and only shows while the field has text. */
-.clear-wrap { position: relative; display: block; }
+/* Q236 (2026-11-07) put a one-tap clear × inside manual-entry inputs;
+   Tanner's ruling 2026-11-25 retired it on form fields: ONE labeled
+   "Clear" pill BESIDE every filled field — same pill family as the
+   attractant rows' "Remove" pill, each labeled by its job — shown only
+   while the field is filled, and every fillable field gets one (two
+   generations had drifted: some fields carried the ×, some had no
+   clear at all). The wrap is now the flex row holding box + pill.
+   The one inside × left in the app is the live-search boxes' (they
+   hold no value — they filter a list), on the .search-wrap variant. */
+.clear-wrap { display: flex; gap: 8px; align-items: center; }
+.clear-wrap > input { flex: 1; min-width: 0; }
 .attr-row .clear-wrap { flex: 1; min-width: 0; }
-.clear-wrap input[type=text] { padding-right: 42px; }
+.clear-pill { flex: 0 0 auto; height: 38px; border-radius: 999px;
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line);
+  font-size: 13px; font-weight: 600; line-height: 1; padding: 0 13px; }
+.clear-pill:active { background: var(--line); }
+.clear-pill[hidden] { display: none; }
+.clear-wrap.search-wrap { position: relative; display: block; }
+.clear-wrap.search-wrap > input { width: 100%; padding-right: 42px; }
 .input-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
   width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent;
   color: var(--muted); font-size: 20px; line-height: 1; padding: 0; cursor: pointer; }
@@ -679,6 +700,21 @@ html.kb-open .scroll, html.kb-open .sheet-body {
   padding-bottom: max(var(--kb-inset, 0px), env(safe-area-inset-bottom));
   scroll-padding-bottom: max(var(--kb-inset, 0px), env(safe-area-inset-bottom));
 }
+/* (Tanner, 2026-11-25): the covered commit — "Save note" existed but
+   sat below the Notes box, behind the keyboard, with nothing on
+   screen saying how to finish. While the keyboard is open AND a
+   notes composer has focus, its action row pins to the bottom of the
+   VISIBLE band, directly above the keyboard (--kb-inset stays the
+   single height source), on screen and tappable mid-typing. The row
+   is armed by focus (NOTE_ACTION_ROWS in app.js); this rule applies
+   only under html.kb-open, so the moment the keyboard closes the row
+   is ordinary in-flow content again — rest state untouched. Notes
+   are multiline: Return keeps inserting a newline; nothing here
+   wires Enter to save. */
+html.kb-open .note-row-armed {
+  position: fixed; left: 0; right: 0; bottom: var(--kb-inset, 0px);
+  z-index: 30; margin: 0; padding: 10px 16px;
+  background: var(--sheet); border-top: 1px solid var(--line); }
 .pane-head { padding: 16px 14px 6px; }
 /* Q111 (2026-10-01): Tanner — app-wide type hierarchy. 1) Screen heading:
    large, bold, centered. */
