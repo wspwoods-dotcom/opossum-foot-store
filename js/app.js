@@ -106,8 +106,10 @@ var Store = {
     /* Q68: trap check clock — hours between required checks, default 24. */
     if (typeof this.data.checkIntervalHours !== 'number' || this.data.checkIntervalHours <= 0) this.data.checkIntervalHours = 24;
     if (typeof this.data.checkClockOn !== 'boolean') this.data.checkClockOn = true; /* alerts on by default */
-    /* gn: the trapper's own trap tag text (Settings → Where You Trap),
-       shown back beside the state's Cat 1 trap-tag rule on the Seasons tab. */
+    /* gn: the trapper's own trap tag text (edited in Paperwork → My
+       Trap Tag since 2026-11-25; it lived in Settings → Where You
+       Trap before that — the stored value never moved), shown back
+       beside the state's Cat 1 trap-tag rule on the Seasons tab. */
     if (typeof this.data.trapTag !== 'string') this.data.trapTag = '';
     migrateCheckClock(this.data);
     /* Q104 (2026-10-01): Tanner — notes get no tap-to-fill suggestions;
@@ -1452,6 +1454,17 @@ function rememberCustomOption(id, v) {
   arr.unshift(v);
   if (typeof Store.save === 'function') Store.save();
 }
+/* (2026-11-25): the delete-× on a remembered custom option — the
+   customOptions counterpart of forgetEntry (Q79's rule, extended to
+   every picker list by Tanner's uniform law). */
+function forgetCustomOption(id, v) {
+  if (!Store.data || typeof Store.data !== 'object') return;
+  var arr = customOptionsFor(id), vl = (v || '').toLowerCase();
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i].toLowerCase() === vl) { arr.splice(i, 1); break; }
+  }
+  if (typeof Store.save === 'function') Store.save();
+}
 /* Base options + the trapper's remembered customs (deduped, customs last). */
 function mergeCustomOptions(id, base) {
   var out = base.slice(), seen = {}, customs = customOptionsFor(id);
@@ -1744,7 +1757,7 @@ function sweepClearInputs(root) {
    (attachSuggest, comboAttach, renderSetNameSuggest) still build
    the SAME rows with the SAME anatomy and handlers — sponsor rows,
    the "In your bag" tag, delete-× on saved/ordinary rows only, the
-   "Use '…'" confirm row, the None row — but the field's box node is
+   "Add '…' to list" confirm row, the None row — but the field's box node is
    MOVED into the picker while it is open, and the query comes from
    the picker's search box instead of the field. Every ruled
    behavior rides along untouched: a pick is the confirm
@@ -1753,6 +1766,43 @@ function sweepClearInputs(root) {
    the trap-model combo keeps its ruled exception — its typed text
    commits on exit (onExit below), the way raw text in its field
    always survived. */
+/* Picker titles (Tanner, 2026-11-25): a picker's title is its field's
+   label, in Title Case — first letter of every word capitalized as
+   written, all-caps acronyms (ZIP) preserved as written. The form's
+   label is canonical; forms are never relabeled to match pickers.
+   ("Trap brand" over a field labeled "Trap Manufacturer" is the
+   mismatch that brought the ruling; "Trap type" was the case one.) */
+function titleCaseWords(s) {
+  return String(s || '').split(/\s+/).map(function (w) {
+    if (!w) return w;
+    if (/^[A-Z0-9]{2,}$/.test(w)) return w; /* acronyms ride as written */
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }).join(' ');
+}
+/* The label's own words: the direct text of the field's <label for> —
+   or of a <label> wrapping the field (bulk-edit rows) — with
+   annotation spans (the * marker, "(optional)") left out: they are
+   not part of the field's name. */
+function fieldLabelWords(input) {
+  function ownText(lab) {
+    var t = '';
+    for (var i = 0; i < lab.childNodes.length; i++) {
+      if (lab.childNodes[i].nodeType === 3) t += lab.childNodes[i].textContent;
+    }
+    return t.replace(/\s+/g, ' ').trim();
+  }
+  if (!input) return '';
+  if (input.id) {
+    var lab = document.querySelector('label[for="' + input.id + '"]');
+    if (lab) { var t1 = ownText(lab); if (t1) return t1; }
+  }
+  var wrap = input.closest ? input.closest('label') : null;
+  if (wrap) { var t2 = ownText(wrap); if (t2) return t2; }
+  return '';
+}
+function pickerTitleFor(input, fallback) {
+  return titleCaseWords(fieldLabelWords(input) || fallback || 'Pick');
+}
 var Picker = {
   session: null,
   el: null, listEl: null, qEl: null, titleEl: null,
@@ -1769,7 +1819,7 @@ var Picker = {
     this.qEl.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter' || !self.session) return;
       /* Enter is the confirm law's second door: it takes the
-         "Use '…'" row when one is offered, exactly as Enter in the
+         "Add '…' to list" row when one is offered, exactly as Enter in the
          old inline box confirmed the typed text. */
       var c = self.session.box.querySelector('.suggest-confirm');
       if (c) { e.preventDefault(); c.click(); }
@@ -1789,6 +1839,12 @@ var Picker = {
     this.qEl.placeholder = cfg.placeholder || 'Search or type';
     this.session = cfg;
     this.el.className = 'picker show';
+    /* Order-aware layering (see .picker in styles.css): a picker
+       opened from inside a showing modal covers that modal; any
+       other picker stays below #modal so a sponsor bio opened from
+       a row's eye rides over it. close() resets the className,
+       which retires the raise with the session. */
+    if (document.querySelector('#modal.show, #modal2.show')) this.el.classList.add('over-modal');
     cfg.render();
     var q = this.qEl;
     setTimeout(function () { try { q.focus({ preventScroll: true }); } catch (e) { try { q.focus(); } catch (e2) { /* noop */ } } }, 30);
@@ -1804,6 +1860,53 @@ var Picker = {
     try { this.qEl.blur(); } catch (e) { /* noop */ }
   }
 };
+/* (Tanner, 2026-11-25): the clear control — one labeled "Clear" pill
+   beside the box, same pill family as the attractant rows' "Remove"
+   pill, each pill labeled by its job. It shows only while the field
+   is filled, and tapping it returns the field to its resting face
+   with exactly the clear semantics the field has always had. Form-side
+   controls never touch the field's list: Clear empties this form's
+   value, Remove drops this form's row, and the item stays in the
+   bag/catalog either way — forgetting an entry happens only inside
+   the picker, on the saved row's delete-× (his ruling, same day).
+   The set name box is the one field that is not a list item at all. */
+function makeClearPill(wrap) {
+  var pill = document.createElement('button');
+  pill.type = 'button';
+  pill.className = 'clear-pill';
+  pill.setAttribute('aria-label', 'Clear this field');
+  pill.textContent = 'Clear';
+  wrap.appendChild(pill);
+  return pill;
+}
+/* (Tanner, 2026-11-25): the notes composers and the row that commits
+   each — while the keyboard is open and a composer has focus, its row
+   wears .note-row-armed and the html.kb-open CSS pins it above the
+   keyboard (see styles.css). One mechanism, every notes surface in
+   the Q195 family: the set form's Save note row; the catch log, whose
+   notes commit is the sheet's Save catch; the marker form's Save
+   marker; the landowner modal's Save row (both of its notes boxes).
+   The memo rows (Record memo) have no keyboard-covered commit —
+   recording runs with the keyboard down — so they are not armed.
+   The post-catch sheet has no notes composer at all (tag fields
+   only), so there is nothing to arm there. */
+var NOTE_ACTION_ROWS = {
+  'sf-notes': function () { var b = $('btn-add-note'); return b ? b.closest('.btn-row') : null; },
+  'log-notes': function () { var s = $('sheet-log'); return s ? s.querySelector('.sheet-actions') : null; },
+  'mk-note': function () { var s = $('sheet-marker-form'); return s ? s.querySelector('.sheet-actions') : null; },
+  'lo-notes': function () { var b = $('lo-save'); return b ? b.closest('.btn-row') : null; },
+  'lo-boundary-note': function () { var b = $('lo-save'); return b ? b.closest('.btn-row') : null; }
+};
+document.addEventListener('focusin', function (e) {
+  var armed = document.querySelector('.note-row-armed');
+  if (armed && (armed === e.target || (armed.contains && armed.contains(e.target)))) return; /* focus moved into the pinned row — keep it pinned for the tap */
+  if (armed) armed.classList.remove('note-row-armed');
+  var t = e.target;
+  if (t && t.tagName === 'TEXTAREA' && NOTE_ACTION_ROWS[t.id]) {
+    var row = NOTE_ACTION_ROWS[t.id]();
+    if (row) row.classList.add('note-row-armed');
+  }
+});
 function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
   var input = $(inputId), box = $(boxId);
   if (!input || !box || input._suggestWired) return;
@@ -1823,7 +1926,7 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
      value is usually wanted again). */
   /* (Tanner's ruling, 2026-11-24 — batch item 7): inside the set form, a
      typed value is not an entry until it is CONFIRMED — picked from the
-     list, tapped on the "Use …" row that offers the typed text itself, or
+     list, tapped on the "Add … to list" row that offers the typed text itself, or
      confirmed with Enter. fillFrom (any pick) records the commit in
      setFormCommits, keyed by input id because attractant rows are rebuilt
      as they are added and removed; saveSetForm's settle reads it back
@@ -1838,13 +1941,11 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
   wrap.className = 'clear-wrap';
   input.parentNode.insertBefore(wrap, input);
   wrap.appendChild(input);
-  var clearBtn = document.createElement('button');
-  clearBtn.type = 'button';
-  clearBtn.className = 'input-clear';
-  clearBtn.setAttribute('aria-label', 'Clear');
-  clearBtn.textContent = '×';
-  clearBtn.hidden = !input.value;
-  wrap.appendChild(clearBtn);
+  /* (2026-11-25): the beside-the-box "Clear" pill — see makeClearPill.
+     Same clear semantics as the retired inside ×: value only, the
+     entry stays in the bag. */
+  var clearBtn = makeClearPill(wrap);
+  clearBtn.hidden = !input.value || (noneFace && input.value === 'None');
   clearBtn.onclick = function (e) {
     if (e && e.stopPropagation) e.stopPropagation();
     input.value = noneFace ? 'None' : '';
@@ -1855,7 +1956,17 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
   function updateClear() { clearBtn.hidden = !input.value || (noneFace && input.value === 'None'); }
   function fillFrom(btn) {
     input.value = btn.getAttribute('data-v');
-    noteCommit(); /* a pick — from the list or the "Use …" row — IS the confirm (item 7) */
+    noteCommit(); /* a pick — from the list or the "Add … to list" row — IS the confirm (item 7) */
+    /* (Tanner, 2026-11-25, uniform law): a custom CONFIRMED on the
+       "Add … to list" row joins the bag NOW, at the confirm — not at the next
+       set save. The old inline flow remembered only at save
+       (rememberAttractants at saveSetForm), and the picker turned the
+       bag into a place he reopens mid-edit: his confirmed "Awesome
+       Opossum" was missing from it until a save that session might
+       never make. Picks of listed rows need no remembering — seeds
+       and saved entries are already in the bag, and sponsor products
+       still join through the save, exactly as before. */
+    if (btn.classList && btn.classList.contains('suggest-confirm')) rememberEntry(key, input.value);
     box.className = 'suggest'; box.innerHTML = '';
     /* ft: the input event below fires render — without this flag it would
        pop the box straight back up with matches for the value just picked. */
@@ -1914,11 +2025,18 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
        no tap, the save settles the box back to what it opened with. */
     var typedRaw = Picker.query().trim();
     var openedRaw = inSetForm() ? setFormOpenedValue(input) : null;
-    var needsConfirm = inSetForm() && !!typedRaw && !(noneFace && typedRaw === 'None') &&
+    /* (Tanner, 2026-11-25, uniform law): the "Add … to list" confirm row is
+       offered in EVERY suggest picker, not only inside the set form —
+       outside it (line name, species, missing detail) the refinements
+       simply never bite (no snapshot, no session commits), and the Use
+       row is the only door that lands typed text in a read-only field.
+       Inside the set form the item-7 refinements stand: no confirm row
+       for the opened-with value or an already-committed one. */
+    var needsConfirm = !!typedRaw && !(noneFace && typedRaw === 'None') &&
       !(typeof setFormCommits !== 'undefined' && setFormCommits[input.id] === typedRaw) &&
       !(openedRaw != null && String(openedRaw).trim().toLowerCase() === typedRaw.toLowerCase());
     var confirmHtml = needsConfirm
-      ? '<div class="suggest-row"><button type="button" class="suggest-item suggest-confirm" data-v="' + esc(typedRaw) + '">Use &ldquo;' + esc(typedRaw) + '&rdquo;</button></div>'
+      ? '<div class="suggest-row"><button type="button" class="suggest-item suggest-confirm" data-v="' + esc(typedRaw) + '">Add &ldquo;' + esc(typedRaw) + '&rdquo; to list</button></div>'
       : '';
     /* No matches: the picker list simply rests empty — the search
        field is pinned at the top of the picker, always visible, so
@@ -1952,7 +2070,13 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
            in the catalog rows below. Non-sponsor rows keep their ×. */
         return sponsorSuggestRowHtml(m.sp, m.name, v);
       }
-      return '<div class="suggest-row"><button type="button" class="suggest-item" data-v="' + esc(v) + '">' + esc(v) + '</button>' + del + '</div>';
+      /* (Tanner, 2026-11-25): his own remembered entries wear the
+         "In your bag" tag, exactly as a saved sponsor row does — the
+         tag's plain meaning. Built-in seeds are not his bag; they
+         stay plain (and keep no delete-×, per Q79). */
+      var nm = isSeedEntry(key, v) ? esc(v)
+        : '<span class="suggest-name suggest-name-bag"><span class="sn-text">' + esc(v) + '</span><span class="bag-tag">In your bag</span></span>';
+      return '<div class="suggest-row"><button type="button" class="suggest-item" data-v="' + esc(v) + '">' + nm + '</button>' + del + '</div>';
     }).join('') + sps.map(function (r) { return sponsorSuggestRowHtml(r.sp, r.name); }).join('');
     box.innerHTML = html;
     box.className = 'suggest show';
@@ -1985,13 +2109,19 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
      picker's empty-search state), the full list elsewhere. The old
      blur-hide and the in-field Enter confirm are gone: the picker's
      lifecycle owns the box, and Enter confirms from the search box
-     (Picker's own keydown handler takes the "Use …" row). */
-  var PICKER_TITLES = { bait: 'Bait', lure: 'Lure', urine: 'Urine', visual: 'Visual attractant', audio: 'Audio attractant', trapmodel: 'Trap model', missingdetail: 'Missing detail', otherspecies: 'Species', linename: 'Line name' };
+     (Picker's own keydown handler takes the "Add … to list" row). */
+  /* Fallbacks only — pickerTitleFor reads the field's own label from
+     the form first (Tanner, 2026-11-25: the label is canonical, the
+     title wears it in Title Case). The attractant row inputs carry no
+     <label for>, so their section words live here, audited against
+     index.html: Bait / Lure / Urine / Visual / Audio / Other
+     Attractants. */
+  var PICKER_TITLES = { bait: 'Bait', lure: 'Lure', urine: 'Urine', visual: 'Visual', audio: 'Audio', other: 'Other Attractants', trapmodel: 'Brand / Model', missingdetail: 'Confiscation Details', otherspecies: 'Species', linename: 'Line Name' };
   function openPicker() {
     if (Picker.isOpenFor(input)) return;
     Picker.open({
       input: input, box: box,
-      title: PICKER_TITLES[key] || 'Pick',
+      title: pickerTitleFor(input, PICKER_TITLES[key]),
       /* Opens on the full list / the bag (empty search) — the ruled
          focus behavior (ho: "tap the field and the FULL list opens";
          hs Q276: focus pops his bag). Typing filters from there. */
@@ -2004,6 +2134,11 @@ function attachSuggest(inputId, boxId, key, typeToFilter, noneFace) {
            unpicked exit — the same survival, translated. */
         if (text && text !== (input.value || '').trim()) {
           input.value = text;
+          /* (2026-11-25, uniform law): an exit-committed trap-model
+             custom joins the bag at the commit, like a confirmed one
+             — the exception keeps its commit semantics, not a lesser
+             memory. */
+          rememberEntry('trapmodel', text);
           input.dispatchEvent(new Event('input', { bubbles: true }));
         }
       } : null
@@ -2033,6 +2168,39 @@ function comboAttach(inputId, boxId, getOptions, opts) {
   var input = $(inputId), box = $(boxId);
   if (!input || !box) return;
   opts = opts || {};
+  /* (Tanner, 2026-11-25, uniform law): every combo picker takes typed
+     customs like every other list — a "Add '…' to list" confirm row, the
+     confirmed custom remembered in the field's bag, the bag wearing
+     the "In your bag" tag and a delete-×. The bag is the remembered
+     custom options (customOptionsFor), keyed by field id unless
+     opts.customKey says otherwise: the variation's customs live under
+     its foundation, and bulk-edit fields borrow the set form's bags.
+     Bulk-edit attractant combos use the saved-entries bag instead
+     (opts.customStore === 'entries'). A null key means no bag. */
+  function customKey() {
+    if (typeof opts.customKey === 'function') return opts.customKey();
+    return (opts.customKey !== undefined) ? opts.customKey : inputId;
+  }
+  function bagValues() {
+    var k = customKey();
+    if (k == null) return [];
+    if (opts.customStore === 'entries') {
+      return savedEntries(k).filter(function (v) { return !isSeedEntry(k, v) && !sponsorEntryMatch(k, v); });
+    }
+    return customOptionsFor(k).slice();
+  }
+  function rememberCustom(v) {
+    var k = customKey();
+    if (k == null || !v) return;
+    if (opts.customStore === 'entries') rememberEntry(k, v);
+    else rememberCustomOption(k, v);
+  }
+  function forgetCustom(v) {
+    var k = customKey();
+    if (k == null) return;
+    if (opts.customStore === 'entries') forgetEntry(k, v);
+    else forgetCustomOption(k, v);
+  }
   /* in (Q309, Tanner's remedy): a combo whose none label is exactly
      'None' wears None as the FACE of empty — the box opens reading
      None, the None row leads the menu, clearing returns to None, and
@@ -2049,17 +2217,22 @@ function comboAttach(inputId, boxId, getOptions, opts) {
     wrap.className = 'clear-wrap';
     input.parentNode.insertBefore(wrap, input);
     wrap.appendChild(input);
-    var clearBtn = document.createElement('button');
-    clearBtn.type = 'button';
-    clearBtn.className = 'input-clear';
-    clearBtn.setAttribute('aria-label', 'Clear');
-    clearBtn.textContent = '×';
+    /* (2026-11-25): the beside-the-box "Clear" pill — see
+       makeClearPill. Fields that never had the inside × (Trap Type,
+       Set Type, Variation) get their first clear here. */
+    var clearBtn = makeClearPill(wrap);
     clearBtn.hidden = !input.value || (noneFace && input.value === 'None');
-    wrap.appendChild(clearBtn);
     clearBtn.onclick = function (e) {
       if (e && e.stopPropagation) e.stopPropagation();
       input.value = noneFace ? 'None' : '';
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      /* A clear is a pick of the resting face: it dispatches the
+         same bubbling 'change' a pick does, so the cascades run
+         their rules — clearing Trap Manufacturer resets the type
+         and model below it (Tanner, 2026-11-25). The retired
+         inside x dispatched 'input' only and left the cascade
+         standing; that gap is part of what this package fixes. */
+      input.dispatchEvent(new Event('change', { bubbles: true }));
       /* Picker era: no focus() — it would open the picker. */
     };
     input._comboClear = clearBtn;
@@ -2067,12 +2240,14 @@ function comboAttach(inputId, boxId, getOptions, opts) {
     /* Picker era: focus/click opens the full-screen picker (the
        cascade's change/onPick plumbing fires from the pick, exactly
        as before). The blur-hide is gone — the picker owns the box. */
-    var COMBO_TITLES = { 'sf-maker': 'Trap brand', 'sf-type': 'Trap type', 'sf-settype': 'Set type', 'sf-setvariation': 'Set variation', 'sf-trapmodel': 'Trap model', 'sf-trapmodel-select': 'Size / model' };
+    /* Fallbacks only — pickerTitleFor reads the field's own label
+       first (Tanner, 2026-11-25: label canonical, Title Case). */
+    var COMBO_TITLES = { 'sf-maker': 'Trap Manufacturer', 'sf-type': 'Trap Type', 'sf-settype': 'Set Type', 'sf-setvariation': 'Variation', 'sf-trapmodel-select': 'Size / Model' };
     function openComboPicker() {
       if (Picker.isOpenFor(input)) return;
       Picker.open({
         input: input, box: box,
-        title: COMBO_TITLES[inputId] || 'Pick',
+        title: pickerTitleFor(input, COMBO_TITLES[inputId]),
         initialQuery: '', /* full list on open — the old showAll focus behavior */
         render: function () { renderCombo(false); }
       });
@@ -2081,7 +2256,21 @@ function comboAttach(inputId, boxId, getOptions, opts) {
     input.addEventListener('click', openComboPicker);
   }
   function renderCombo(showAll) {
-    var raw = getOptions() || [];
+    var raw = (getOptions() || []).slice();
+    /* (2026-11-25): this field's bag rides into the list at once — a
+       custom remembered moments ago must show on the next opening,
+       but the option stashes (the cascade's, the detail renders')
+       rebuild on their own schedule and would hide it until the form
+       reopens. Appended customs ride last, as mergeCustomOptions
+       puts them; the next stash rebuild folds them into place. */
+    var bagList = bagValues();
+    var bagSet = {};
+    bagList.forEach(function (v) { bagSet[String(v).toLowerCase()] = 1; });
+    var haveVal = {};
+    raw.forEach(function (o) { haveVal[String(((o && typeof o === 'object') ? o.v : o)).toLowerCase()] = 1; });
+    bagList.forEach(function (v) {
+      if (!haveVal[String(v).toLowerCase()]) { raw.push(v); haveVal[String(v).toLowerCase()] = 1; }
+    });
     var values = raw.map(function (o) { return (o && typeof o === 'object') ? o.v : o; });
     comboBaseCache[inputId] = values;
     /* Picker era: rows render only inside an open picker session;
@@ -2096,12 +2285,34 @@ function comboAttach(inputId, boxId, getOptions, opts) {
       return !q || lbl.toLowerCase().indexOf(q) !== -1 || String(v).toLowerCase().indexOf(q) !== -1;
     });
     var html = '';
+    /* (Tanner, 2026-11-25, uniform law): typed text that is not an
+       exact existing entry gets the "Add '…' to list" confirm row — the door
+       the combo/cascade pickers were missing entirely (his "Test"
+       brand search rendered a completely empty list: no rows, no way
+       to keep the text, backing out lost it). Enter in the search
+       box clicks this row, via Picker's own keydown handler. */
+    var qRaw = Picker.query().trim();
+    var exact = false;
+    raw.forEach(function (o) {
+      var v = (o && typeof o === 'object') ? o.v : o;
+      var lbl = ((o && typeof o === 'object') ? o.label : o) || '';
+      if (String(v).toLowerCase() === q || lbl.toLowerCase() === q) exact = true;
+    });
+    if (q && !exact && !(opts.noneLabel && opts.noneLabel.toLowerCase() === q)) {
+      html += '<div class="suggest-row"><button type="button" class="suggest-item suggest-confirm" data-v="' + esc(qRaw) + '">Add &ldquo;' + esc(qRaw) + '&rdquo; to list</button></div>';
+    }
     if (opts.noneLabel && (!q || opts.noneLabel.toLowerCase().indexOf(q) !== -1)) {
       html += '<div class="suggest-row"><button type="button" class="suggest-item" data-v="' + (noneFace ? 'None' : '') + '">' + esc(opts.noneLabel) + '</button></div>';
     }
     html += rows.map(function (o) {
       var v = (o && typeof o === 'object') ? o.v : o;
       var lbl = (o && typeof o === 'object') ? o.label : o;
+      /* (2026-11-25): a remembered custom wears the "In your bag"
+         tag and carries its delete-×, same as everywhere else. */
+      if (bagSet[String(v).toLowerCase()]) {
+        return '<div class="suggest-row"><button type="button" class="suggest-item" data-v="' + esc(v) + '"><span class="suggest-name suggest-name-bag"><span class="sn-text">' + esc(lbl) + '</span><span class="bag-tag">In your bag</span></span></button>' +
+          '<button type="button" class="suggest-del" data-v="' + esc(v) + '" aria-label="Remove from list">×</button></div>';
+      }
       return '<div class="suggest-row"><button type="button" class="suggest-item" data-v="' + esc(v) + '">' + esc(lbl) + '</button></div>';
     }).join('');
     if (!html) { box.className = 'suggest'; box.innerHTML = ''; return; } /* picker era: an empty list just rests empty under the pinned search */
@@ -2109,6 +2320,9 @@ function comboAttach(inputId, boxId, getOptions, opts) {
     box.className = 'suggest show';
     box.querySelectorAll('.suggest-item').forEach(function (b) {
       b.onclick = function () {
+        /* (2026-11-25): a confirmed custom is remembered at the
+           confirm — the pick IS the confirm, as in fillFrom. */
+        if (this.classList && this.classList.contains('suggest-confirm')) rememberCustom(this.getAttribute('data-v'));
         input.value = this.getAttribute('data-v');
         if (input._comboClear) input._comboClear.hidden = !input.value || (noneFace && input.value === 'None');
         box.className = 'suggest'; box.innerHTML = '';
@@ -2117,6 +2331,13 @@ function comboAttach(inputId, boxId, getOptions, opts) {
         if (opts.onPick) opts.onPick(input.value);
         Picker.close(true);
         input.blur(); /* ht (Q277): a pick finishes the field */
+      };
+    });
+    box.querySelectorAll('.suggest-del').forEach(function (d) {
+      d.onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        forgetCustom(this.getAttribute('data-v'));
+        renderCombo(false);
       };
     });
     /* Picker era: no reveal call — the picker IS the reveal. */
@@ -2130,7 +2351,12 @@ function drainCombos() {
     comboAttach(c.id, c.id + '-suggest', function () { return c.options; }, { noneLabel: c.noneLabel });
   });
 }
-/* Q248: the clear × for a plain typed field that has none (Set Name model). */
+/* Q248: a clear control for a plain typed field that has none (Set Name
+   model). (2026-11-25): the control is the beside-the-box "Clear" pill
+   (makeClearPill) — EXCEPT the live search boxes: they hold no value,
+   they filter a list, so their in-box × stays (Tanner, same day: "a
+   different animal"), named here on purpose as the one inside × left. */
+var SEARCH_BOX_IDS = { 'history-search': 1, 'seasons-search': 1, 'landowner-search': 1, 'mk-kind-search': 1, 'log-species-search': 1 };
 function ensureClearInput(input) {
   if (!input || input.closest('.clear-wrap') || input._clearWired) return;
   input._clearWired = true;
@@ -2138,13 +2364,19 @@ function ensureClearInput(input) {
   wrap.className = 'clear-wrap';
   input.parentNode.insertBefore(wrap, input);
   wrap.appendChild(input);
-  var btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'input-clear';
-  btn.setAttribute('aria-label', 'Clear');
-  btn.textContent = '×';
+  var btn;
+  if (SEARCH_BOX_IDS[input.id]) {
+    wrap.classList.add('search-wrap');
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'input-clear';
+    btn.setAttribute('aria-label', 'Clear search');
+    btn.textContent = '×';
+    wrap.appendChild(btn);
+  } else {
+    btn = makeClearPill(wrap);
+  }
   btn.hidden = !input.value;
-  wrap.appendChild(btn);
   btn.onclick = function (e) {
     if (e && e.stopPropagation) e.stopPropagation();
     input.value = '';
@@ -2182,7 +2414,7 @@ function renderSetNameSuggest() {
   if (inp._justFilled) { inp._justFilled = false; hideSetNameSuggest(); return; }
   /* Picker era (2026-11-25): the name list lives in the full-screen
      picker; the query is the picker's search text. A typed name that
-     is not an existing set name gets the confirm-law "Use '…'" row —
+     is not an existing set name gets the confirm-law "Add '…' to list" row —
      tapping it (or Enter, via the picker's keydown) is the pick that
      writes the field; exiting unpicked changes nothing. */
   if (!Picker.isOpenFor(inp)) { hideSetNameSuggest(); return; }
@@ -2199,7 +2431,7 @@ function renderSetNameSuggest() {
   });
   names.sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); });
   var useHtml = (rawQ && !exact)
-    ? '<div class="suggest-row"><button type="button" class="suggest-item suggest-confirm" data-v="' + esc(rawQ) + '">Use &ldquo;' + esc(rawQ) + '&rdquo;</button></div>'
+    ? '<div class="suggest-row"><button type="button" class="suggest-item suggest-confirm" data-v="' + esc(rawQ) + '">Add &ldquo;' + esc(rawQ) + '&rdquo; to list</button></div>'
     : '';
   if (!names.length && !useHtml) { hideSetNameSuggest(); return; }
   box.innerHTML = useHtml + names.map(function (n) {
@@ -2230,14 +2462,12 @@ function wireSetNameField() {
   wrap.className = 'clear-wrap';
   inp.parentNode.insertBefore(wrap, inp);
   wrap.appendChild(inp);
-  var btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'input-clear';
+  /* (2026-11-25): the beside-the-box "Clear" pill — see makeClearPill.
+     The set name is the named exception to the list law (it is not a
+     list item), but it takes the same pill as every other field. */
+  var btn = makeClearPill(wrap);
   btn.id = 'sf-name-clear';
-  btn.setAttribute('aria-label', 'Clear set name');
-  btn.textContent = '×';
   btn.hidden = !inp.value;
-  wrap.appendChild(btn);
   setNameClearBtn = btn;
   btn.onclick = function (e) {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -2257,7 +2487,7 @@ function wireSetNameField() {
     if (Picker.isOpenFor(inp)) return;
     Picker.open({
       input: inp, box: box,
-      title: 'Set name',
+      title: pickerTitleFor(inp, 'Set Name'),
       initialQuery: '', /* all existing names on open; typing filters or names a new one */
       placeholder: 'Type a name or pick one',
       render: renderSetNameSuggest
@@ -2306,7 +2536,13 @@ function renderAttrRows(field, values, minRows) {
     html += '<div class="attr-row">' +
       '<input type="text" class="attr-row-input" id="sf-' + field + '-row-' + i + '" data-attr="' + field + '"' +
       ' autocomplete="off" value="' + esc(vals[i]) + '">' +
-      (showX ? '<button type="button" class="attr-row-x" data-attr="' + field + '" data-i="' + i + '" aria-label="Remove">×</button>' : '') +
+      /* (Tanner, 2026-11-25): the row remover is a labeled "Remove"
+         pill, not a bare × — the box already carries a × of its own
+         (the in-box clear, which only empties the value to None), and
+         two identical marks for two different jobs confused. The pill
+         still shows only with 2+ rows and still removes the whole
+         row in one tap; the in-box clear × is untouched. */
+      (showX ? '<button type="button" class="attr-row-x" data-attr="' + field + '" data-i="' + i + '" aria-label="Remove this row">Remove</button>' : '') +
       '</div><div class="suggest" id="sf-' + field + '-row-' + i + '-suggest"></div>';
   }
   host.innerHTML = html;
@@ -3334,11 +3570,20 @@ function setZipNote(msg) {
   var el = $('settings-zip-note');
   if (el) el.textContent = msg || ZIP_HINT;
 }
+/* The value the ZIP box last committed AS (Tanner, 2026-11-25):
+   the box auto-commits the moment the fifth digit lands, and the
+   'change' that fires when the field then blurs carries that same
+   value — it must not commit a second time. renderSettingsZip is
+   the one door that writes the box from data (line switches, state
+   changes, Settings renders), so it re-syncs the tracker: whatever
+   the box shows from data is, by definition, already committed. */
+var settingsZipCommitted = null;
 function renderSettingsZip() {
   var inp = $('settings-zip');
   if (!inp) return;
   var al = activeLine();
   inp.value = al && al.zip ? al.zip : '';
+  settingsZipCommitted = inp.value;
   setZipNote('');
 }
 /* ONE door for changing the active line's trapping state: the
@@ -3968,13 +4213,13 @@ var editingSetId = null, pendingCoords = null, pendingSetPhotos = [], editSetPho
    (Item 7, Tanner's ruling later the same day): the SAVE door is settled
    too — typed text now needs a CONFIRM before a save keeps it. A box
    keeps its text at save only if the value was there when the form
-   opened, was picked from the list, or was confirmed (the "Use …" row
+   opened, was picked from the list, or was confirmed (the "Add … to list" row
    in the suggestion list, or Enter). settleSetFormForSave reverts every
    other box to its opened-with value BEFORE any reader runs, so a scrap
    is never saved and never remembered in the bag; a confirmed custom
    entry rides the old road exactly as before (on the set, in the bag). */
 var setFormSnapshot = null, setFormSaved = false, setFormOpening = false;
-var setFormCommits = {}; /* set-form input id -> value confirmed this session (pick / "Use …" row / Enter) */
+var setFormCommits = {}; /* set-form input id -> value confirmed this session (pick / "Add … to list" row / Enter) */
 var setFormSaveReverts = 0; /* boxes reverted by the save settle; the note toast after a save reads it */
 var setFormOpenSeq = 0, modsRenderSeq = -1; /* Q204: mods fold state is per form-open */
 var setMissingReason = null;
@@ -7381,7 +7626,15 @@ function openBulkEdit() {
   $('modal').classList.add('sheet-dress'); /* gx: standard sheet dress for the bulk family */
   fields.forEach(function (f) {
     comboAttach('be-' + f.field, 'be-' + f.field + '-suggest',
-      function () { return f.options; }, { noneLabel: '(no change)' });
+      function () { return f.options; },
+      /* (2026-11-25, uniform law): the bulk combos borrow the set
+         form's bags, so a custom confirmed here joins the same list
+         it would join from the form — one bag per list, everywhere.
+         (The Apply path below still remembers the applied values,
+         as before; the two memories dedupe to one entry.) */
+      f.field === 'setType' ? { noneLabel: '(no change)', customKey: 'sf-settype' }
+      : f.field === 'trapType' ? { noneLabel: '(no change)', customKey: 'sf-type' }
+      : { noneLabel: '(no change)', customKey: f.field, customStore: 'entries' });
   });
   $('m-cancel').onclick = function () { closeModal(); };
   $('m-ok').onclick = function () {
@@ -8616,7 +8869,7 @@ function renderSeasonsGap(d) {
   var tag = (Store.data.trapTag || '').trim();
   sec(1, tag
     ? '<p class="dim">Your trap tag: <strong>' + esc(tag) + '</strong></p>'
-    : '<p class="dim">You haven\'t saved your trap tag yet — add it under Settings → Where You Trap and it will show here with this rule.</p>');
+    : '<p class="dim">You haven\'t saved your trap tag yet — add it in Paperwork, under My Trap Tag, and it will show here with this rule.</p>');
   sec(5); sec(10); sec(11); sec(12); sec(6); sec(7);
   if (!secs.length) { box.innerHTML = ''; box.hidden = true; return; }
   var srcs = [];
@@ -11911,7 +12164,10 @@ function enterMain() {
     toast(this.checked ? 'Wind arrows are on.' : 'Wind arrows are off.');
   };
   /* gn: my trap tag — plain text, saved like every other setting; shown
-     back on the Seasons tab beside the state's trap-tag rule. */
+     back on the Seasons tab beside the state's trap-tag rule. The
+     input's edit home is Paperwork → My Trap Tag since 2026-11-25
+     (Tanner's ruling); the id and the Store.data.trapTag binding are
+     unchanged, so this wiring never noticed the move. */
   var tagInput = $('settings-traptag');
   if (tagInput) {
     tagInput.value = Store.data.trapTag || '';
@@ -12119,12 +12375,12 @@ function buildGuideTOC() {
     openSheet('sheet-guide');
   }
   $('btn-legal').onclick = openLegalNotices;
-  /* 2026-11-24 (next build): the Q211 placement spec (2026-10-21) called
-     for a link from the Seasons view to the full umbrella text — it never
-     shipped, so the notices were reachable only through Settings. The
-     Seasons disclaimer now carries its own door to the same sheet. */
-  var seasonsLegalBtn = $('seasons-legal');
-  if (seasonsLegalBtn) seasonsLegalBtn.onclick = openLegalNotices;
+  /* (2026-11-25, Tanner): the Seasons door to the notices (added on
+     the Q211 placement spec, dressed as a yellow official button on
+     Build 67) is REMOVED — the notices are the app's own legal
+     matter, not season law, and the yellow coat in the Seasons stack
+     made them read as season law. Settings → Help & Legal is the
+     only door; nothing links here from Seasons. */
   $('btn-features-reset').onclick = function () {
     confirmModal('Reset features to defaults?',
       'This puts all the feature toggles back to their defaults. It will not delete any of your sets, catches, lines, photos, or memos — and you can tap everything back on again afterwards.',
@@ -13322,14 +13578,41 @@ function wireUp() {
 
   /* settings */
   /* Item 7: the picker goes through the one state-change door
-     (applyLineStateChange); the ZIP box beside it commits on change
-     or Enter, like the home picker's ZIP. */
+     (applyLineStateChange); the ZIP box beside it commits through
+     commitSettingsZip below. The home picker's ZIP (#home-zip) is
+     deliberately NOT given the same auto-apply: it has its own Go
+     button beside the box, and it commits nothing — homeZipJump
+     only pans the map inside a live picking session, with the map
+     moving in front of the user's eyes as the confirmation. */
   $('settings-state').onchange = function () { applyLineStateChange(this.value); };
   var settingsZipInp = $('settings-zip');
   if (settingsZipInp) {
-    settingsZipInp.addEventListener('change', settingsZipChanged);
+    /* Tanner, 2026-11-25: the iOS numeric keypad has no Enter key,
+       and he could not tell whether his typed ZIP had taken. So the
+       box commits ITSELF the moment the fifth digit lands, then
+       blurs — the keyboard drops and the state flipping above is
+       the visible proof. commitSettingsZip is idempotent per value:
+       a 'change' carrying the value already committed (the one the
+       auto-blur fires, or leaving the field after an Enter commit)
+       is a no-op, so nothing toasts, notes, or re-arms twice. A
+       6th+ character (ZIP+4) never auto-fires; the ordinary change
+       path still takes the final value when he leaves the field. */
+    var commitSettingsZip = function (auto) {
+      var v = settingsZipInp.value.trim();
+      if (settingsZipCommitted !== null && v === settingsZipCommitted) {
+        if (auto) settingsZipInp.blur(); /* already took — just drop the keyboard */
+        return;
+      }
+      settingsZipChanged();
+      settingsZipCommitted = settingsZipInp.value.trim();
+      if (auto) settingsZipInp.blur();
+    };
+    settingsZipInp.addEventListener('change', function () { commitSettingsZip(false); });
     settingsZipInp.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Enter') { ev.preventDefault(); settingsZipChanged(); }
+      if (ev.key === 'Enter') { ev.preventDefault(); commitSettingsZip(false); }
+    });
+    settingsZipInp.addEventListener('input', function () {
+      if (settingsZipInp.value.replace(/\D/g, '').length === 5) commitSettingsZip(true);
     });
   }
   $('btn-backup').onclick = exportFullBackup;
@@ -13483,7 +13766,12 @@ function boot() {
   comboAttach('sf-maker', 'sf-maker-suggest', function () { return makerComboOptions(); }, {});
   comboAttach('sf-type', 'sf-type-suggest', function () { return window._sfTypeOpts || ALL_TRAP_TYPES.slice(); }, { noneLabel: 'None' });
   comboAttach('sf-settype', 'sf-settype-suggest', function () { return window._sfSetTypeOpts || []; }, { noneLabel: 'None' });
-  comboAttach('sf-setvariation', 'sf-setvariation-suggest', function () { return window._sfVarOpts || []; }, { noneLabel: 'None' });
+  comboAttach('sf-setvariation', 'sf-setvariation-suggest', function () { return window._sfVarOpts || []; }, { noneLabel: 'None',
+    /* gj: variation customs live under their foundation — the bag key
+       follows the Set Type field's current value; no foundation
+       picked, no bag (the value still lands; variationFieldValue's
+       own read-time rule governs its memory). */
+    customKey: function () { var f = $('sf-settype') ? $('sf-settype').value.trim() : ''; return f ? 'sf-setvariation:' + f : null; } });
   /* ho (Q248): every other manually typed field in the sheets and the
      home bar gets the clear × (the Set Name model). Fields already
      carrying one (suggest/combo fields wrap themselves) are skipped by
