@@ -280,6 +280,15 @@ var Markers = (function () {
   }
   function openForm(ctx) {
     if (formCtx && formCtx.pendingId) dropPendingFormMemos(); /* a prior new-form session never saved */
+    /* (2026-11-25 evening, Tanner's field report on Build 105): the
+       staged PHOTOS got no such drop — formPhotoFiles is cleared
+       only at save, so a photo picked on a form that closed unsaved
+       rode into the NEXT form that opened (his new marker opened
+       wearing the stovetop test photo from another marker), and a
+       save there would have written it onto the wrong marker. A
+       form session owns its staged files: a fresh open starts
+       empty, exactly as the memos drop above. */
+    formPhotoFiles = [];
     formCtx = ctx;
     pendingKind = ctx.kind || null;
     hideMkFormError();
@@ -489,35 +498,50 @@ var Markers = (function () {
     var mk = data().filter(function (m) { return m.id === id; })[0];
     if (!mk) return;
     detailId = id;
-    /* The headline is the marker's own Name when it has one, with the
-       kind leading the line beneath it; an unnamed (legacy) marker
-       renders exactly as it always did — kind as the headline. */
-    var named = !!(mk.label && String(mk.label).trim());
-    var html = '<div class="mk-detail-head"><span class="mk-kind-ic big">' + glyphFor(mk) + '</span><div><h3>' + esc(displayName(mk)) + '</h3>' +
-      '<p class="dim">' + (named ? esc(mk.name) + ' · ' : '') + esc(mk.cat === 'sign' ? FAM_LABEL[mk.fam] : mk.cat === 'custom' ? 'Custom kind' : FORAGE_FAM_LABEL[(forageEntry(mk.ref) || {}).fam] || 'Forage & finds') + ' · ' + (mk.poly ? 'Area' : 'Pin') + ' · ' + new Date(mk.createdAt).toLocaleDateString() + '</p></div></div>';
-    /* Q194 (2026-10-18): Tanner — his photo and his note come FIRST; the
-       catalog description lives as a tab at the bottom of the page. */
-    html += '<div class="mk-detail-photos" id="mk-detail-photos"></div>';
-    /* 2026-11-25: the filed notes render as the family's collapsible
-       entry cards (noteEntryHTML — the set detail's own renderer),
-       newest first; memos render playback-only below them, the set
-       detail's treatment (renderMemos, editable=false). */
+    /* (2026-11-25 evening, Tanner): the marker detail wears the set
+       detail's shape, element for element — the marker's name as the
+       sheet title; the kind on the badge pill where a set wears its
+       status (the kind's short name: "Tracks", from "Tracks /
+       footprints"); the short facts as rows in the kv card; the
+       filed notes, memos and photos behind the same "Notes, Memos
+       & Photos" door the set detail uses; the catalog reference
+       behind its own doors; Edit/Delete in the bottom row. The
+       glyph badge and the loose inline stack are retired. */
+    $('mk-detail-title').textContent = displayName(mk);
+    var kindShort = String(mk.name || 'Marker').split(' / ')[0];
+    $('mk-badges').innerHTML = '<span class="badge mk-kind-badge">' + esc(kindShort) + '</span>';
+    var famLabel = mk.cat === 'sign' ? FAM_LABEL[mk.fam] : mk.cat === 'custom' ? 'Custom kind' : FORAGE_FAM_LABEL[(forageEntry(mk.ref) || {}).fam] || 'Forage & finds';
+    var fHtml = '';
+    function fRow(label, val) { if (val) fHtml += '<dt>' + esc(label) + '</dt><dd>' + esc(val) + '</dd>'; }
+    fRow('Kind', mk.name);
+    fRow('Family', famLabel);
+    fRow('Type', mk.poly ? 'Area' : 'Pin');
+    fRow('Date', new Date(mk.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }));
+    $('mk-fields').innerHTML = fHtml;
+    /* The notes door starts from the set detail's Q99 rule — open
+       when there's something to show, closed when there isn't; the
+       counts settle asynchronously below. */
+    if (typeof setSectionOpen === 'function') setSectionOpen('markerdetail-notessec', false);
+    /* The filed notes render as the family's collapsible entry
+       cards (noteEntryHTML — the set detail's own renderer), newest
+       first; memos render playback-only, the set detail's treatment
+       (renderMemos, editable=false). */
     var mkEntries = markerNoteEntries(mk);
-    if (mkEntries.length) html += '<div class="mk-detail-notes">' + mkEntries.slice().reverse().map(noteEntryHTML).join('') + '</div>';
-    html += '<div id="mk-detail-memos" style="margin-top:8px"></div>';
-    $('mk-detail-body').innerHTML = html;
-    $('mk-detail-body').querySelectorAll('.note-entry .entry-head').forEach(function (h) {
+    var notesHost = $('mk-detail-notes');
+    notesHost.innerHTML = mkEntries.slice().reverse().map(noteEntryHTML).join('');
+    notesHost.querySelectorAll('.note-entry .entry-head').forEach(function (h) {
       h.onclick = function () { h.parentElement.classList.toggle('expanded'); };
     });
     if (typeof renderMemos === 'function') renderMemos(mk.id, 'mk-detail-memos', false, 'markerId');
+    var photosHost = $('mk-detail-photos'); if (photosHost) photosHost.innerHTML = '';
     var infoHost = $('mk-detail-info');
     var ih = infoHtml(mk);
     if (infoHost) {
       /* A custom kind has no catalog entry, hence no info card — the
          section is omitted rather than rendered empty. */
-      infoHost.innerHTML = ih ? '<div class="setsec" style="margin-top:14px">' +
+      infoHost.innerHTML = ih ? '<div class="card setsec" style="margin-top:14px">' +
         '<button type="button" class="setsec-head" id="mk-info-head" aria-expanded="false"><span>' + (mk.cat === 'sign' ? 'How to read it' : 'About this find') + '</span><span class="setsec-chev" aria-hidden="true">›</span></button>' +
-        '<div class="setsec-body" id="mk-info-body" hidden><div class="card mk-info-card">' + ih + '</div></div></div>' : '';
+        '<div class="setsec-body mk-info-card" id="mk-info-body" hidden>' + ih + '</div></div>' : '';
       if (ih) $('mk-info-head').onclick = function () {
         var b = $('mk-info-body'); if (!b) return;
         var open = b.hidden; b.hidden = !open;
@@ -526,7 +550,8 @@ var Markers = (function () {
     }
     IDB.all('photos').then(function (all) {
       var host = $('mk-detail-photos'); if (!host) return;
-      all.filter(function (p) { return p.markerId === id; }).forEach(function (p) {
+      var mine = all.filter(function (p) { return p.markerId === id; });
+      mine.forEach(function (p) {
         var img = document.createElement('img'); img.className = 'mk-thumb'; img.src = URL.createObjectURL(p.blob);
         /* fy: tap opens the photo viewer (zoom + save), like every other photo in the app. */
         img.style.cursor = 'pointer';
@@ -538,6 +563,11 @@ var Markers = (function () {
         };
         host.appendChild(img);
       });
+      IDB.all('memos').then(function (memos) {
+        var hasAny = mkEntries.length > 0 || memos.some(function (m) { return m.markerId === id; }) || mine.length > 0;
+        var emptyEl = $('mk-notes-empty'); if (emptyEl) emptyEl.hidden = hasAny;
+        if (hasAny && typeof setSectionOpen === 'function') setSectionOpen('markerdetail-notessec', true);
+      }).catch(function () {});
     }).catch(function () {});
     openSheet('sheet-marker-detail');
   }
