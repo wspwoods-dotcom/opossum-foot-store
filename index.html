@@ -540,6 +540,17 @@
         <p class="dim" style="margin:-6px 0 10px">Shows current conditions and the next 12 hours on the map chip, and attaches the weather to new sets and catches on its own. Sends your coordinates to Open-Meteo for the forecast — needs a connection.</p>
         <label class="checkline"><input type="checkbox" id="settings-windarrows"> Wind arrows on set pins</label>
         <p class="dim" style="margin:-6px 0 10px">A small arrow at the edge of each set pin points downwind — the way your scent carries. Arrows show when you're zoomed in close, and use live wind when you're online.</p>
+        <!-- 2026-11-25 (Tanner's ruling): the two coordinate switches moved
+             here from Your Privacy — a switch lives with the switches. The
+             privacy explainer stays prose in its own section and points
+             here. Ids unchanged, so the wiring and the stored values ride
+             untouched; the features reset enumerates its own keys and does
+             NOT sweep these in — a features reset never changes a privacy
+             choice. -->
+        <label class="checkline"><input type="checkbox" id="settings-showcoords"> Show GPS coordinates</label>
+        <p class="dim" style="margin:-6px 0 10px">Shows the county and exact coordinates on a set's details and on the weather tab. Off keeps them hidden, so screenshots are safe to share.</p>
+        <label class="checkline"><input type="checkbox" id="settings-exportcoords"> Include GPS coordinates in reports</label>
+        <p class="dim" style="margin:-6px 0 10px">Adds Latitude and Longitude columns to the CSV exports you download from Data. Off by default, so a spreadsheet you share never carries your pins.</p>
         <button class="btn-secondary" id="btn-features-reset" type="button">Reset features to defaults</button>
         </div>
       </div>
@@ -589,10 +600,7 @@
         <p><strong>Your spots never leave your phone.</strong></p>
         <p class="dim">Opossum Foot has no account, no login, and no cloud. Every set, catch, photo, and voice memo is stored only on this phone. Nothing you enter is stored anywhere else — the only network traffic is map tiles, the app's own files, weather lookups (only if you turn weather on), and live voice transcription (only when you tap the microphone and have a connection).</p>
         <p class="dim"><strong>The honest catch:</strong> because there's no cloud backup, a lost phone, a wiped phone, or clearing the app's data can destroy your records. Back up with <strong>Back up all data (JSON)</strong> on the Data tab — the full JSON backup is the backup that restores your records; CSV exports are spreadsheet copies.</p>
-        <label class="checkline"><input type="checkbox" id="settings-showcoords"> Show GPS coordinates</label>
-        <p class="dim" style="margin:-6px 0 10px">Shows the county and exact coordinates on a set's details and on the weather tab. Off keeps them hidden, so screenshots are safe to share.</p>
-        <label class="checkline"><input type="checkbox" id="settings-exportcoords"> Include GPS coordinates in reports</label>
-        <p class="dim" style="margin:-6px 0 10px">Adds Latitude and Longitude columns to the CSV exports you download from Data. Off by default, so a spreadsheet you share never carries your pins.</p>
+        <p class="dim">The coordinate switches — showing coordinates on a set's details, and including them in reports — live under <strong>Toggles → Feature Toggles</strong>, above.</p>
         </div>
       </div>
       <div class="card setsec" id="setsec-about">
@@ -752,17 +760,40 @@
     </div>
   </div>
 
+  <!-- (2026-11-25 evening, Tanner): the marker detail wears the SET
+       detail's shape — the marker's name as the title, the kind on
+       the badge pill where a set wears its status, the short facts
+       in the kv card, Notes/Memos/Photos behind the same door, the
+       reference behind its own doors, Edit/Delete in the bottom
+       row. Mirrors #sheet-setdetail element for element. -->
   <div id="sheet-marker-detail" class="sheet">
     <div class="sheet-grab"></div>
-    <div class="sheet-head"><h2>Marker</h2><button class="sheet-x" data-close type="button">×</button></div>
+    <div class="sheet-head"><h2 id="mk-detail-title">Marker</h2><button class="sheet-x" data-close type="button">×</button></div>
     <div class="sheet-body">
-      <div id="mk-detail-body"></div>
-      <div class="sheet-actions" id="mk-detail-actions">
-        <button class="btn-secondary" id="btn-mk-edit" type="button">Edit</button>
-        <button class="btn-secondary" id="btn-mk-ref" type="button">Reference &amp; sources</button>
-        <button class="btn-ghost" id="btn-mk-delete" type="button">Delete</button>
+      <div id="mk-badges" style="margin-bottom:6px"></div>
+      <div class="card"><dl class="kv" id="mk-fields"></dl></div>
+      <div class="card setsec" id="markerdetail-notessec">
+        <button type="button" class="setsec-head" id="markerdetail-notessec-head" data-sec="markerdetail-notessec" aria-expanded="false"><span>Notes, Memos &amp; Photos</span><span class="setsec-chev" aria-hidden="true">›</span></button>
+        <div class="setsec-body" id="markerdetail-notessec-body" hidden>
+          <h3 style="margin:6px 0">Marker Notes</h3>
+          <div id="mk-detail-notes" class="notes-view"></div>
+          <label class="field" style="margin-top:18px">Voice memos</label>
+          <div id="mk-detail-memos"></div>
+          <label class="field" style="margin-top:18px">Photos</label>
+          <div class="photo-strip" id="mk-detail-photos"></div>
+          <p class="dim" id="mk-notes-empty" hidden>No notes, memos, or photos yet.</p>
+        </div>
       </div>
       <div id="mk-detail-info"></div>
+      <div class="card setsec" id="markerdetail-refsec">
+        <button type="button" class="setsec-head" id="btn-mk-ref"><span>Reference &amp; sources</span><span class="setsec-chev" aria-hidden="true">›</span></button>
+      </div>
+      <div class="sheet-actions">
+        <div class="btn-row">
+          <button class="btn-secondary" id="btn-mk-edit" type="button">Edit this marker</button>
+          <button class="btn-danger" id="btn-mk-delete" type="button">Delete</button>
+        </div>
+      </div>
     </div>
   </div>
 
