@@ -662,6 +662,12 @@ function parseISODate(s) {
 /* Returns { inSeason, badge, badgeClass, label, limits, seasonNote }.
    NEVER blocks logging — the app warns, it does not forbid. */
 function speciesSeasonInfo(sp, refDate) {
+  /* A trapper-named animal (the Other animal door): not in the state list,
+     so no season or bag limit applies in the app — always loggable. */
+  if (sp.custom) {
+    return { inSeason: true, badge: 'Not regulated', badgeClass: 'yearround', limits: null,
+      seasonNote: 'Not a species in the state list — it is logged under the name you gave it.' };
+  }
   /* Domestic animal is not a regulated species — always loggable, never
      flagged out-of-season, never triggers a season reminder. */
   if (sp.domestic || sp.season_status === 'exempt') {
@@ -5765,6 +5771,17 @@ var logSheetLive = false;
    that's what happens, and switching stays one tap away. logOtherType
    keeps its 'sprung' default. */
 var logEventType = 'catch', logOtherType = 'sprung';
+/* 2026-11-26 (Tanner, from Jeff Gareri's field report): the Catch species
+   list carries an "Other animal" door — an animal that is not on the
+   state's list (his armadillo, then a squirrel) logs as a real CATCH under
+   its own typed name, badged Not regulated, and the name is remembered
+   ('catchspecies', Q12-scoped to this field) so it stands as a card in the
+   list next time. logOtherAnimal = the Other animal card is picked and the
+   name comes from #log-species-custom; logSpeciesCustom = the picked
+   logSpecies is one of the remembered names, not a catalog species. The
+   Sept 2023 "Other" design had landed under Other event only, where it
+   never counted as a catch — this is the same door, in the Catch room. */
+var logOtherAnimal = false, logSpeciesCustom = false;
 var OTHER_LABELS = { 'sprung': 'Sprung', 'non-native': 'Non-native animal', 'non-game': 'Non-target animal', 'domestic': 'Domestic animal', 'fur': 'Fur', 'animal-part': 'Animal part', 'empty': 'Empty — nothing changed', 'other': 'Other' };
 
 /* Notes placeholder nudge: the catch-all 'Other' subtype gets a descriptive
@@ -5795,6 +5812,8 @@ function logFormDirty() {
   if (logEventType !== 'catch' || logOtherType !== 'sprung') return true;
   if (($('log-notes').value || '').trim()) return true;
   if (($('log-species-free').value || '').trim()) return true;
+  if (logOtherAnimal || logSpeciesCustom) return true;
+  if (($('log-species-custom').value || '').trim()) return true;
   if (($('log-date').value || '') !== todayISO()) return true;
   return false;
 }
@@ -5806,6 +5825,7 @@ function openLogSheet(setId) {
   $('log-tag-number').value = ''; $('log-tag-date').value = ''; /* gw: fresh tag fields per catch */
   logSheetLive = true;
   logEventType = 'catch'; logOtherType = 'sprung';
+  logOtherAnimal = false; logSpeciesCustom = false; $('log-species-custom').value = '';
   renderPendingLogPhotos();
   $('log-setline').innerHTML = '<strong>' + esc(s.name) + '</strong>' +
     (s.setType ? ' · ' + esc(setTypeLabel(s)) : '') +
@@ -6044,27 +6064,93 @@ function openPendingSetPhotoViewer(idx) {
     });
   };
 }
+/* The trapper's remembered Other-animal names ('catchspecies' bucket,
+   Q12-scoped to this field). Read-only before data loads. */
+function catchCustomSpecies() {
+  if (!Store.data) return [];
+  return savedEntries('catchspecies').slice();
+}
+function customSpeciesRecord(name) {
+  return { common_name: name, scientific_name: '', keywords: '', custom: true,
+    season_status: 'exempt', seasons: [], notes: '' };
+}
+/* The Other animal name box stands only while that card is picked. */
+function updateLogCustomRow() {
+  var row = $('log-species-custom-row');
+  if (row) row.hidden = !logOtherAnimal;
+}
 function renderSpeciesList(filter) {
   var d = stateData();
   var box = $('log-species-list');
   if (!d) { box.innerHTML = '<p class="dim">No season data loaded.</p>'; return; }
-  var q = (filter || '').toLowerCase();
-  var list = sortSpeciesAlpha(stateSpecies().filter(function (sp) {
-    return !q || sp.common_name.toLowerCase().indexOf(q) !== -1 ||
-      (sp.scientific_name || '').toLowerCase().indexOf(q) !== -1 ||
-      (sp.keywords || '').toLowerCase().indexOf(q) !== -1;
-  }));
-  if (!list.length) { box.innerHTML = '<p class="dim">No species match.</p>'; return; }
-  box.innerHTML = list.map(function (sp) {
+  var q = (filter || '').trim().toLowerCase();
+  function matches(name, sci, kw) {
+    return !q || name.toLowerCase().indexOf(q) !== -1 ||
+      (sci || '').toLowerCase().indexOf(q) !== -1 ||
+      (kw || '').toLowerCase().indexOf(q) !== -1;
+  }
+  var catalogNames = {};
+  stateSpecies().forEach(function (sp) { catalogNames[sp.common_name.toLowerCase()] = 1; });
+  var main = stateSpecies().filter(function (sp) {
+    return !sp.domestic && matches(sp.common_name, sp.scientific_name, sp.keywords);
+  });
+  var customs = catchCustomSpecies().filter(function (nm) {
+    return !catalogNames[nm.toLowerCase()] && matches(nm, '', '');
+  }).map(customSpeciesRecord);
+  /* The pending pick (typed via Other animal or the search Add row, not yet
+     saved) still renders as its own selected card. */
+  if (logSpeciesCustom && logSpecies && !catalogNames[logSpecies.toLowerCase()] &&
+      !customs.some(function (c) { return c.common_name.toLowerCase() === logSpecies.toLowerCase(); }) &&
+      matches(logSpecies, '', '')) {
+    customs.push(customSpeciesRecord(logSpecies));
+  }
+  function rowHtml(sp) {
     var info = speciesSeasonInfo(sp);
     /* domestic rows get the circular ? help icon in the species-icon slot (left) */
     var iconHtml = sp.domestic ? '<span class="sp-icon sp-help" data-help="1">?</span>' : speciesIcon(sp.common_name);
-    return '<button type="button" class="species-row' + (logSpecies === sp.common_name ? ' selected' : '') +
-      '" data-sp="' + esc(sp.common_name) + '">' + iconHtml +
+    var selected = (logSpecies === sp.common_name) && (!!sp.custom === !!logSpeciesCustom);
+    var forgetHtml = sp.custom ? '<span class="sp-forget" data-forget="' + esc(sp.common_name) + '" title="Remove from your list">×</span>' : '';
+    return '<button type="button" class="species-row' + (selected ? ' selected' : '') +
+      '" data-sp="' + esc(sp.common_name) + '"' + (sp.custom ? ' data-custom="1"' : '') + '>' + iconHtml +
       '<span class="sp-name">' + esc(sp.common_name) +
       (sp.scientific_name ? '<span class="sci">' + esc(sp.scientific_name) + '</span>' : '') + '</span>' +
-      '<span class="badge ' + info.badgeClass + '">' + info.badge + '</span>' + '</button>';
-  }).join('');
+      '<span class="badge ' + info.badgeClass + '">' + info.badge + '</span>' + forgetHtml + '</button>';
+  }
+  var html = sortSpeciesAlpha(main.concat(customs)).map(rowHtml).join('');
+  if (matches(DOMESTIC_ANIMAL.common_name, DOMESTIC_ANIMAL.scientific_name, DOMESTIC_ANIMAL.keywords)) {
+    html += rowHtml(DOMESTIC_ANIMAL);
+  }
+  if (q) {
+    var exactHit = stateSpecies().some(function (sp) { return sp.common_name.toLowerCase() === q; }) ||
+      catchCustomSpecies().some(function (nm) { return nm.toLowerCase() === q; });
+    if (!exactHit) {
+      html += '<button type="button" class="species-row addrow" data-add="1">' +
+        '<span class="sp-name">Add “' + esc((filter || '').trim()) + '”</span>' +
+        '<span class="badge yearround">Not regulated</span></button>';
+    }
+  }
+  if (!q || 'other animal'.indexOf(q) !== -1) {
+    html += '<button type="button" class="species-row' + (logOtherAnimal ? ' selected' : '') + '" data-other="1">' +
+      '<span class="sp-icon sp-help" aria-hidden="true">+</span>' +
+      '<span class="sp-name">Other animal<span class="sci">Not on the list — name it below</span></span>' +
+      '<span class="badge yearround">Not regulated</span></button>';
+  }
+  if (!html) html = '<p class="dim">No species match.</p>';
+  box.innerHTML = html;
+  var forgets = box.querySelectorAll('.sp-forget');
+  for (var f = 0; f < forgets.length; f++) {
+    forgets[f].onclick = function (e) {
+      e.stopPropagation();
+      var nm = this.getAttribute('data-forget');
+      forgetEntry('catchspecies', nm);
+      if (logSpeciesCustom && logSpecies && logSpecies.toLowerCase() === nm.toLowerCase()) {
+        logSpecies = null; logSpeciesCustom = false;
+      }
+      renderSpeciesList($('log-species-search').value);
+      renderLogWarnings();
+      updateLogTagSection();
+    };
+  }
   var btns = box.querySelectorAll('.species-row');
   for (var i = 0; i < btns.length; i++) {
     btns[i].onclick = function (e) {
@@ -6074,12 +6160,35 @@ function renderSpeciesList(filter) {
         showSpeciesDetail(this.getAttribute('data-sp'));
         return;
       }
+      if (this.hasAttribute('data-add')) {
+        /* The search Add row: the typed name lands in the Other animal box,
+           ready to adjust; the catch save is what remembers it. */
+        logOtherAnimal = true; logSpecies = null; logSpeciesCustom = false;
+        $('log-species-custom').value = (filter || '').trim();
+        $('log-species-search').value = '';
+        renderSpeciesList('');
+        renderLogWarnings();
+        updateLogTagSection();
+        $('log-species-custom').focus();
+        return;
+      }
+      if (this.hasAttribute('data-other')) {
+        logOtherAnimal = true; logSpecies = null; logSpeciesCustom = false;
+        renderSpeciesList($('log-species-search').value);
+        renderLogWarnings();
+        updateLogTagSection();
+        $('log-species-custom').focus();
+        return;
+      }
       logSpecies = this.getAttribute('data-sp');
+      logSpeciesCustom = this.hasAttribute('data-custom');
+      logOtherAnimal = false;
       renderSpeciesList($('log-species-search').value);
       renderLogWarnings();
       updateLogTagSection(); /* gw: the Tag section follows the picked species */
     };
   }
+  updateLogCustomRow();
 }
 
 /* County/city-level variation: species.county_notes, or any season zone with
@@ -6157,7 +6266,9 @@ function saveLog() {
   if (Memo.recording || Memo._saving) { showLogFormError('Finish the voice memo first, then save.'); return; }
   var isOther = (logEventType === 'other');
   var isEmpty = isOther && logOtherType === 'empty'; /* Q68: pure check-in */
-  var species = isEmpty ? '' : (isOther ? $('log-species-free').value.trim() : logSpecies);
+  var species = isEmpty ? '' : (isOther ? $('log-species-free').value.trim()
+    : (logOtherAnimal ? ($('log-species-custom').value || '').trim() : logSpecies));
+  if (!isOther && logOtherAnimal && !species) { showLogFormError('Name the animal you caught — type it in the box under Other animal.'); return; }
   if (!isOther && !species) { showLogFormError('Pick a species first.'); return; }
   if (logDispositionRequired() && !logDisposition) {
     var limited = (logEventType === 'other') && (logOtherType === 'animal-part' || logOtherType === 'fur');
@@ -6200,6 +6311,9 @@ function saveLog() {
   touchSet(getSet(logSetId)); /* Q68: a logged catch, event, or empty check restarts the clock */
   /* #6 (2026-10-01): Tanner — catch-log notes are written fresh, never saved for reuse. */
   if (isOther && species) rememberEntry('otherspecies', species); /* Q12 */
+  /* The Other animal door: the typed name is remembered at the save — the
+     confirm — so it stands as a card in the Catch list next time. */
+  if (!isOther && (logOtherAnimal || logSpeciesCustom) && species) rememberEntry('catchspecies', species);
   Store.save();
   pendingLogPhotos.forEach(function (ph) {
     IDB.put('photos', {
@@ -9762,31 +9876,32 @@ function renderPaperworkMileage() {
    tag number, carrying the state's deadline text. No badges, counters,
    or mentions anywhere else in the app. The whole card hides when Tag
    records are off — stored records are untouched. */
-/* ================= My Trap Tag stack (Paperwork, 2026-11-25) =================
-   Tanner: the single trap-tag field had no Save button — it
-   committed silently on change — and one field assumed one tag
-   wording, while his iron can carry different wordings at once
-   (name & address on some traps, a state ID number on others).
-   Now: a stack of free-text rows under one explicit Save (the
-   btn-primary section-commit pattern, e.g. the landowner Save),
-   the app's standard toast as the confirmation. Rows STAGE in
-   memory (trapTagStaged) until Save — nothing reaches Store.data
-   before it, pane re-renders rebuild from the staged copy so
-   work is never clobbered, and a reload drops unsaved staging
-   exactly as it drops any unsaved form. Row removal follows the
-   stacked-row law: 2+ rows carry the labeled Remove pill; a lone
-   row carries the clear × (ensureClearInput) instead. The stack
-   cap follows the attractant stack's convention: 6 rows
-   (TRAPTAG_MAX_ROWS = ATTR_MAX_ROWS). Each row can carry photos
-   of the actual tag: IDB 'photos' records, kind 'traptag', keyed
-   by trapTagId — staged with the row, committed and reconciled
-   at Save (a removed row's photos are deleted with it, Q38: no
-   orphans), and excluded from the JSON backup exactly like
-   license photos (they ride the media ZIP pack under their own
-   'Trap Tags' branch instead). */
-var TRAPTAG_MAX_ROWS = 6;
-var trapTagStaged = null; /* null = not staged; else [{id, text, photos:[{photoId, blob}]}] */
-var trapTagPhotoTarget = -1;
+/* ================= My Trap Tag (Paperwork) =================
+   2026-11-25, first build: a stack of free-text rows staged in the
+   section under one Save. Tanner's Build 111 field verdict killed
+   that shape on sight: "There's no separation... I thought you
+   were supposed to make these consistent" / "when you save it
+   doesn't save in an actual tab it just stays in the box and the
+   x clears that box." His ruling: BUILD IT LIKE THE LANDOWNER
+   LIST. So the section is a list of saved tags, each a card in
+   landownerCard's shape — the tag wording as a tappable heading,
+   its photos in a .lic-grid under it (tap to view, x deletes just
+   that photo, with a confirm, straight away). "+ Add a tag" and a
+   card tap open ONE editor: the landowner form's own vehicle
+   (showDockedModal, fields in .modal-scroll, Cancel / Save in the
+   .modal-actions footer, Delete inside the edit screen on an
+   existing tag). The editor stages in memory — new photos pend,
+   existing photos delete straight away behind a confirm, exactly
+   as the landowner form runs — and nothing reaches Store.data or
+   IDB until Save; Cancel (or the modal's dismissal) throws the
+   staging away, the promise Tanner field-proved on the old build.
+   Data unchanged: Store.data.trapTags [{id, text}]; photos are
+   IDB 'photos' records, kind 'traptag', keyed by trapTagId,
+   excluded from the JSON backup exactly like license photos (they
+   ride the media ZIP pack under their own 'Trap Tags' branch);
+   Seasons reads the list through trapTagEntries(). */
+var pendingTagPhotos = []; /* [{blob}] — photos added in the editor, flushed at Save */
+var tagFormId = null;      /* the tag id the open editor is working on (null = closed) */
 
 function trapTagEntries() {
   var list = (Store.data && Array.isArray(Store.data.trapTags)) ? Store.data.trapTags : [];
@@ -9797,205 +9912,211 @@ function trapTagEntries() {
   return out;
 }
 
-function stageTrapTags() {
-  trapTagStaged = trapTagEntries().map(function (e) { return { id: e.id, text: e.text, photos: [] }; });
-  if (!trapTagStaged.length) trapTagStaged = [{ id: uid('tag'), text: '', photos: [] }];
-  renderTrapTagRows();
-  IDB.all('photos').then(function (all) {
-    if (!trapTagStaged) return;
-    var changed = false;
-    (all || []).forEach(function (p) {
-      if (!p || p.kind !== 'traptag' || !p.trapTagId || !p.blob) return;
-      for (var i = 0; i < trapTagStaged.length; i++) {
-        if (trapTagStaged[i].id === p.trapTagId) { trapTagStaged[i].photos.push({ photoId: p.id, blob: p.blob }); changed = true; break; }
-      }
-    });
-    if (changed) renderTrapTagRows();
-  });
-}
-
 function renderTrapTagSection() {
-  if (trapTagStaged === null) stageTrapTags();
-  else renderTrapTagRows();
-}
-
-function renderTrapTagRows() {
-  var box = $('traptag-rows');
-  if (!box || !trapTagStaged) return;
-  box.innerHTML = '';
-  var multi = trapTagStaged.length > 1;
-  trapTagStaged.forEach(function (row, idx) {
-    var wrap = document.createElement('div');
-    wrap.className = 'attr-row';
-    /* (2026-11-25 evening, Tanner: "It should look similar to what the
-       other pages do" / "More consistency") — the row is built from the
-       attractant stack's own parts: the input carries .attr-row-input
-       (the old build wrapped it in a .suggest-wrap nothing flexed, so
-       the box sprawled) and Remove carries .attr-row-x, the stack's
-       pill. The old build invented a 'remove-pill' class with NO CSS
-       rule anywhere — iOS painted it as a native white button with
-       blue text, matching nothing in the app. */
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'attr-row-input';
-    input.value = row.text;
-    input.placeholder = 'Name & address, or state ID number';
-    input.setAttribute('autocomplete', 'off');
-    input.setAttribute('aria-label', 'Trap tag');
-    input.addEventListener('input', function () { row.text = this.value; });
-    wrap.appendChild(input);
-    /* Stacked-row law (2026-11-25): a row in a stack of 2+ carries
-       ONLY Remove; the clear × belongs to the lone row, which is a
-       single field. The render rebuilds on every add/remove, so
-       the swap rides it both ways. */
-    if (!multi) ensureClearInput(input, { noneFace: false });
-    if (multi) {
-      var rm = document.createElement('button');
-      rm.type = 'button'; rm.className = 'attr-row-x'; rm.textContent = 'Remove';
-      rm.setAttribute('aria-label', 'Remove this tag');
-      rm.onclick = function () {
-        /* (2026-11-25 evening, Tanner's field report): his real saved
-           tag vanished on one tap with no prompt. A row holding a
-           SAVED tag (text or photos on the record) asks first, in the
-           app's delete-confirm shape; a fresh, never-saved row still
-           removes silently. */
-        var saved = trapTagEntries().some(function (e) { return e.id === row.id; });
-        var doRemove = function () { trapTagStaged.splice(idx, 1); renderTrapTagRows(); };
-        if (saved && (row.text.trim() || row.photos.length)) {
-          confirmModal('Remove this tag?',
-            'This tag will be deleted when you tap Save. Once saved, it is gone for good.',
-            'Remove', doRemove);
-        } else doRemove();
-      };
-      wrap.appendChild(rm);
+  var list = $('traptag-list');
+  if (!list) return;
+  var tags = (Store.data && Array.isArray(Store.data.trapTags)) ? Store.data.trapTags : [];
+  IDB.all('photos').then(function (photos) {
+    var byTag = {};
+    (photos || []).forEach(function (p) {
+      if (p && p.kind === 'traptag' && p.trapTagId) { (byTag[p.trapTagId] = byTag[p.trapTagId] || []).push(p); }
+    });
+    list.innerHTML = '';
+    if (!tags.length) {
+      list.innerHTML = '<p class="dim" style="margin:8px 0">No trap tag yet. Add what your tags say.</p>';
+      return;
     }
-    box.appendChild(wrap);
-    /* Photos in the set form's own arrangement: the ghost add button,
-       then the .photo-strip under it (an empty strip hides itself). */
-    var prow = document.createElement('div');
-    var add = document.createElement('button');
-    add.type = 'button'; add.className = 'btn-small btn-ghost'; add.textContent = '+ Add a photo';
-    add.onclick = function () { trapTagPhotoTarget = idx; var fi = $('traptag-photo-input'); if (fi) fi.click(); };
-    prow.appendChild(add);
-    box.appendChild(prow);
-    var strip = document.createElement('div');
-    strip.className = 'photo-strip';
-    strip.style.marginTop = '8px';
-    row.photos.forEach(function (ph, pi) {
+    tags.forEach(function (t) { list.appendChild(trapTagCard(t, byTag[t.id] || [])); });
+  });
+}
+
+function trapTagCard(tag, photos) {
+  var card = document.createElement('div');
+  card.className = 'card';
+  var html = '<h3 style="text-align:left;cursor:pointer" data-tt-name title="Tap to edit">' + esc(tag.text || '(photo only)') + '</h3>';
+  if (photos.length) html += '<div class="lic-grid" data-tt-photos></div>';
+  card.innerHTML = html;
+  card.querySelector('[data-tt-name]').onclick = function () { openTrapTagForm(tag.id); };
+  var grid = card.querySelector('[data-tt-photos]');
+  if (grid) {
+    photos.forEach(function (p) {
+      var item = document.createElement('div');
+      item.className = 'lic-item';
       var img = document.createElement('img');
-      img.className = 'photo-thumb'; img.alt = 'Trap tag photo';
-      img.src = URL.createObjectURL(ph.blob);
-      img.title = 'Tap to enlarge';
-      img.onclick = function () { openTrapTagPhotoViewer(idx, pi); };
-      strip.appendChild(img);
+      img.src = URL.createObjectURL(p.blob); img.alt = 'Trap tag photo';
+      img.onclick = function () { openTrapTagCardViewer(p); };
+      item.appendChild(img);
+      (function (photo) {
+        var del = document.createElement('button');
+        del.type = 'button'; del.textContent = '\u00d7'; del.setAttribute('aria-label', 'Delete photo');
+        del.onclick = function (e) {
+          e.stopPropagation();
+          confirmModal('Delete this photo?', 'It will be removed from this phone.', 'Delete', function () {
+            IDB.del('photos', photo.id).then(function () { renderTrapTagSection(); });
+          });
+        };
+        item.appendChild(del);
+      })(p);
+      grid.appendChild(item);
     });
-    box.appendChild(strip);
-  });
-  var addBtn = $('btn-traptag-add');
-  if (addBtn) addBtn.style.display = trapTagStaged.length >= TRAPTAG_MAX_ROWS ? 'none' : '';
+  }
+  return card;
 }
 
-/* A staged tag photo in the standard viewer shape — zoom, Save
-   Photo — with Remove behind the marker photos' confirm wording;
-   removing only unstages (nothing reaches IDB until Save). */
-function openTrapTagPhotoViewer(rowIdx, photoIdx) {
-  var row = trapTagStaged && trapTagStaged[rowIdx];
-  var ph = row && row.photos[photoIdx];
-  if (!ph) return;
-  var url = URL.createObjectURL(ph.blob);
-  showModal('<h3 style="margin-top:0">Trap tag photo</h3>' +
-    '<img src="' + url + '" style="width:100%;border-radius:8px" alt="Trap tag photo">' +
-    '<div class="btn-row" style="margin-top:10px">' +
-    '<button class="btn-danger" id="m-tt-del" type="button">Remove</button>' +
-    '<button class="btn-secondary" id="m-tt-save" type="button">Save Photo</button>' +
+/* View-only photo viewer for a saved tag photo — the landowner
+   card viewer's shape. Removing a photo happens on the card or in
+   the editor, not here. */
+function openTrapTagCardViewer(p) {
+  var src = URL.createObjectURL(p.blob);
+  showModal('<h3>Trap tag photo</h3>' +
+    '<img src="' + src + '" style="width:100%;border-radius:8px" alt="Trap tag photo">' +
+    '<div class="btn-row" style="margin-top:10px"><button class="btn-secondary" id="m-ph-save" type="button">Save Photo</button>' +
     '<button class="btn-secondary" id="m-close" type="button">Close</button></div>');
-  wirePhotoZoom($('modal-card'));
-  $('m-close').onclick = function () { URL.revokeObjectURL(url); closeModal(); };
-  $('m-tt-save').onclick = function () { sharePhotoFile(ph.blob, 'opossum-foot-trap-tag'); };
-  $('m-tt-del').onclick = function () {
-    confirmModal('Remove this photo?', 'It will not be saved with this tag.', 'Remove', function () {
-      row.photos.splice(photoIdx, 1);
-      URL.revokeObjectURL(url);
-      renderTrapTagRows();
-    });
-  };
+  $('m-close').onclick = closeModal;
+  $('m-ph-save').onclick = function () { if (p && p.blob) sharePhotoFile(p.blob, 'opossum-foot-photo'); };
 }
 
-function saveTrapTags() {
-  if (!trapTagStaged) return;
-  var kept = trapTagStaged.filter(function (r) { return r.text.trim() || r.photos.length; });
-  var entries = kept.map(function (r) { return { id: r.id, text: r.text.trim() }; });
-  var keptIds = {};
-  entries.forEach(function (e) { keptIds[e.id] = true; });
-  Store.data.trapTags = entries;
-  Store.save();
+/* The editor — the landowner form's vehicle and habits. */
+function openTrapTagForm(id) {
+  var existing = null;
+  (Store.data.trapTags || []).forEach(function (t) { if (t && t.id === id) existing = t; });
+  var isNew = !existing;
+  var tag = isNew ? { id: uid('tag'), text: '' } : { id: existing.id, text: existing.text || '' };
+  tagFormId = tag.id;
+  pendingTagPhotos = [];
+  showDockedModal(
+    '<div class="modal-scroll">' +
+    '<h3>' + (isNew ? 'Add Trap Tag' : 'Edit Trap Tag') + '</h3>' +
+    '<label class="field" for="tt-text">Tag wording</label>' +
+    '<input id="tt-text" type="text" value="' + esc(tag.text) + '" placeholder="Name & address, or state ID number" autocomplete="off">' +
+    '<label class="field">Photo of the tag</label>' +
+    '<button class="btn-secondary" id="tt-photo-btn" type="button">+ Add a photo</button>' +
+    '<div class="lic-grid" id="tt-grid"></div>' +
+    '</div>' +
+    '<div class="modal-actions">' +
+    '<div class="btn-row"><button class="btn-secondary" id="m-cancel" type="button">Cancel</button>' +
+    '<button class="btn-primary" id="tt-save" type="button">Save</button></div>' +
+    (isNew ? '' : '<button class="btn-danger" id="tt-del" type="button" style="margin-top:10px;width:100%">Delete this tag</button>') +
+    '</div>'
+  );
+  $('m-cancel').onclick = function () { tagFormId = null; pendingTagPhotos = []; closeModal(); };
+  $('tt-photo-btn').onclick = function () { var fi = $('traptag-photo-input'); if (fi) fi.click(); };
+  $('tt-save').onclick = function () { saveTrapTagForm(tag.id, isNew); };
+  if (!isNew) $('tt-del').onclick = function () { deleteTrapTag(tag.id); };
+  var input = $('tt-text');
+  if (input) ensureClearInput(input);
+  renderTagFormPhotos(tag.id);
+}
+
+function tagPhotoThumb(blob, onDel) {
+  var item = document.createElement('div');
+  item.className = 'lic-item';
+  var img = document.createElement('img');
+  img.src = URL.createObjectURL(blob); img.alt = 'Trap tag photo';
+  img.onclick = function () {
+    var url = img.src;
+    showModal('<h3 style="margin-top:0">Trap tag photo</h3>' +
+      '<img src="' + url + '" style="width:100%;border-radius:8px" alt="Trap tag photo">' +
+      '<div class="btn-row" style="margin-top:10px">' +
+      '<button class="btn-secondary" id="m-close" type="button">Close</button></div>');
+    $('m-close').onclick = closeModal;
+  };
+  item.appendChild(img);
+  var del = document.createElement('button');
+  del.type = 'button'; del.textContent = '\u00d7'; del.setAttribute('aria-label', 'Delete photo');
+  del.onclick = function (e) {
+    e.stopPropagation();
+    confirmModal2('Delete this photo?', 'It will be gone forever.', 'Delete', onDel);
+  };
+  item.appendChild(del);
+  return item;
+}
+
+function renderTagFormPhotos(tagId) {
+  var grid = $('tt-grid');
+  if (!grid) return;
   IDB.all('photos').then(function (all) {
-    var ops = [];
-    var existing = (all || []).filter(function (p) { return p && p.kind === 'traptag'; });
-    existing.forEach(function (p) { if (!keptIds[p.trapTagId]) ops.push(IDB.del('photos', p.id)); });
-    kept.forEach(function (r) {
-      var stagedIds = {};
-      r.photos.forEach(function (ph) { if (ph.photoId) stagedIds[ph.photoId] = true; });
-      existing.forEach(function (p) {
-        if (p.trapTagId === r.id && !stagedIds[p.id]) ops.push(IDB.del('photos', p.id));
+    if (!$('tt-grid')) return;
+    grid.innerHTML = '';
+    (all || []).filter(function (p) { return p && p.kind === 'traptag' && p.trapTagId === tagId; })
+      .forEach(function (p) {
+        grid.appendChild(tagPhotoThumb(p.blob, function () {
+          IDB.del('photos', p.id).then(function () { renderTagFormPhotos(tagId); });
+        }));
       });
-      r.photos.forEach(function (ph) {
-        if (!ph.photoId) {
-          ph.photoId = uid('photo');
-          ops.push(IDB.put('photos', { id: ph.photoId, kind: 'traptag', trapTagId: r.id, lineId: activeLineId(), blob: ph.blob, createdAt: Date.now() }));
-        }
+    pendingTagPhotos.forEach(function (pp) {
+      grid.appendChild(tagPhotoThumb(pp.blob, function () {
+        var ix = pendingTagPhotos.indexOf(pp);
+        if (ix !== -1) pendingTagPhotos.splice(ix, 1);
+        renderTagFormPhotos(tagId);
+      }));
+    });
+  });
+}
+
+function saveTrapTagForm(tagId, isNew) {
+  var input = $('tt-text');
+  var text = input ? input.value.trim() : '';
+  IDB.all('photos').then(function (all) {
+    var existingCount = (all || []).filter(function (p) { return p && p.kind === 'traptag' && p.trapTagId === tagId; }).length;
+    if (!text && !existingCount && !pendingTagPhotos.length) {
+      toast('Type what the tag says, or add a photo of it.');
+      return;
+    }
+    if (!Array.isArray(Store.data.trapTags)) Store.data.trapTags = [];
+    var found = false;
+    Store.data.trapTags = Store.data.trapTags.map(function (t) {
+      if (t && t.id === tagId) { found = true; return { id: tagId, text: text }; }
+      return t;
+    });
+    if (!found) Store.data.trapTags.push({ id: tagId, text: text });
+    Store.save();
+    var ops = pendingTagPhotos.map(function (pp) {
+      return IDB.put('photos', { id: uid('photo'), kind: 'traptag', trapTagId: tagId, lineId: activeLineId(), blob: pp.blob, createdAt: Date.now() });
+    });
+    Promise.all(ops).then(function () {
+      tagFormId = null;
+      pendingTagPhotos = [];
+      closeModal();
+      renderTrapTagSection();
+      toast('Trap tag saved.');
+    });
+  });
+}
+
+function deleteTrapTag(tagId) {
+  confirmModal('Delete this tag?',
+    'The tag and its photos will be removed from this phone. Once deleted, they are gone for good.',
+    'Delete', function () {
+      Store.data.trapTags = (Store.data.trapTags || []).filter(function (t) { return !t || t.id !== tagId; });
+      Store.save();
+      IDB.all('photos').then(function (all) {
+        var ops = (all || []).filter(function (p) { return p && p.kind === 'traptag' && p.trapTagId === tagId; })
+          .map(function (p) { return IDB.del('photos', p.id); });
+        Promise.all(ops).then(function () {
+          tagFormId = null;
+          pendingTagPhotos = [];
+          closeModal();
+          renderTrapTagSection();
+          toast('Trap tag deleted.');
+        });
       });
     });
-    return Promise.all(ops);
-  }).then(function () {
-    trapTagStaged = null;
-    renderTrapTagSection();
-    toast(entries.length > 1 ? 'Trap tags saved.' : (entries.length ? 'Trap tag saved.' : 'Trap tag cleared.'));
-  });
 }
 
 function wireTrapTagSection() {
-  /* (2026-11-25 evening, Tanner's field report): "When you say it
-     doesn't really save anything" — the staged model promised edits
-     live only until Save, but this section is a collapsible in a pane,
-     not a sheet: closing it kept the staged edits standing, so there
-     was no way to abandon them and a later Save committed removals he
-     had forgotten making. Now closing the section DISCARDS the staged
-     state, the way closing a sheet does; reopening stages fresh from
-     the saved tags, so what you see is what is actually saved. */
-  var ttHead = $('setsec-traptag-head');
-  if (ttHead) ttHead.addEventListener('click', function () {
-    setTimeout(function () {
-      var sec = $('setsec-traptag');
-      if (!sec) return;
-      if (!sec.classList.contains('open')) { trapTagStaged = null; }
-      else if (trapTagStaged === null) { renderTrapTagSection(); }
-    }, 0);
-  });
   var add = $('btn-traptag-add');
-  if (add) add.onclick = function () {
-    if (!trapTagStaged) stageTrapTags();
-    if (trapTagStaged.length >= TRAPTAG_MAX_ROWS) return;
-    trapTagStaged.push({ id: uid('tag'), text: '', photos: [] });
-    renderTrapTagRows();
-    var inputs = $('traptag-rows').querySelectorAll('input[type="text"]');
-    var last = inputs[inputs.length - 1];
-    if (last) try { last.focus({ preventScroll: true }); } catch (e) { last.focus(); }
-  };
-  var save = $('btn-traptag-save');
-  if (save) save.onclick = saveTrapTags;
+  if (add) add.onclick = function () { openTrapTagForm(null); };
   var file = $('traptag-photo-input');
   if (file) file.onchange = function () {
     var files = Array.prototype.slice.call(this.files || []);
     this.value = '';
-    var row = (trapTagStaged && trapTagPhotoTarget >= 0) ? trapTagStaged[trapTagPhotoTarget] : null;
-    trapTagPhotoTarget = -1;
-    if (!row || !files.length) return;
+    if (tagFormId === null || !files.length) return;
     var pending = files.length;
     files.forEach(function (f) {
       downscalePhoto(f, function (blob) {
-        if (blob) row.photos.push({ photoId: null, blob: blob });
-        if (--pending === 0) renderTrapTagRows();
+        if (blob) pendingTagPhotos.push({ blob: blob });
+        if (--pending === 0) renderTagFormPhotos(tagFormId);
       });
     });
   };
@@ -11209,13 +11330,42 @@ function findImportedTransfer(transferId) {
   return null;
 }
 
+/* (2026-11-25 late, Build 111 field defect — Tanner): the import
+   ledger remembered every transfer forever, but nothing tied an
+   entry to the line it became. He deleted the "Test (2)" line,
+   then re-imported the same file, and the app refused him with
+   "it is in your lines as "Test (2)"" — naming a line his picker
+   proved was gone. A ledger entry now blocks only while the line
+   it became is still among his lines: new entries carry the
+   line's id; older entries (no id) reconcile by the name they
+   recorded. A deleted line's entry is stale — dropped on sight,
+   and the import proceeds like any fresh one. The refusal message
+   names the line as it stands TODAY, not as it landed. */
+function liveImportedTransfer(transferId) {
+  var e = findImportedTransfer(transferId);
+  if (!e || typeof e !== 'object') return null;
+  var lines = Store.data.lines || [];
+  var live = null;
+  if (e.lineId) {
+    lines.forEach(function (l) { if (l && l.id === e.lineId) live = l; });
+  } else if (e.name) {
+    lines.forEach(function (l) { if (l && l.name === e.name) live = l; });
+  }
+  if (!live) {
+    Store.data.importedTransfers = Store.data.importedTransfers.filter(function (x) { return x !== e; });
+    Store.save();
+    return null;
+  }
+  return { name: live.name };
+}
+
 /* Accept-first: the receiver always sees what is about to land and taps
    "Add line" before anything is written. */
 function importLineTransfer(data) {
   if (!data.line || !Array.isArray(data.sets) || !Array.isArray(data.logs)) {
     toast('That line file looks incomplete.'); return;
   }
-  var prior = findImportedTransfer(data.transferId);
+  var prior = liveImportedTransfer(data.transferId);
   if (prior) {
     toast('You already added this line' + (prior.name ? ' — it is in your lines as “' + prior.name + '”' : '') + '.');
     return;
@@ -11295,7 +11445,10 @@ function applyLineTransferNow(data, srcName) {
     c.visual = toAttrArray(l.visual); c.audio = toAttrArray(l.audio); c.other = toAttrArray(l.other);
     d.logs.push(c); nLogs++;
   });
-  if (data.transferId) d.importedTransfers.push({ id: data.transferId, name: name, at: Date.now() });
+  if (data.transferId) {
+    d.importedTransfers = d.importedTransfers.filter(function (x) { return !x || (x.id !== data.transferId && x !== data.transferId); });
+    d.importedTransfers.push({ id: data.transferId, name: name, lineId: ln.id, at: Date.now() });
+  }
   Store.save();
   refreshMarkers(); renderHistory(); renderTotals();
   if (typeof renderLines === 'function') renderLines();
@@ -12263,18 +12416,26 @@ function mergePinIntoSet(pin, set) {
   var n = String(set.name || '').trim().toLowerCase();
   if ((!n || n === 'imported set') && pin.name) set.name = pin.name;
 }
-/* Duplicate dialog: three choices. "Delete incoming pin" is worded to be
-   unmistakable that only the import is discarded — the app's data stays. */
-function askPinDuplicate(pin, set, cb) {
+/* Duplicate dialog: three choices, asked ONCE per import (2026-11-26,
+   Tanner — the location door gets the name door's treatment). A single
+   spot-match names the pin and the set, as the old per-pin dialog did;
+   several matches are counted and the answer covers every one of them.
+   "Delete incoming" is worded to be unmistakable that only the import
+   is discarded — the app's data stays. */
+function askPinDuplicateRun(matches, cb) {
+  var n = matches.length;
+  var body = n === 1
+    ? '<p>&ldquo;' + esc(matches[0].pinName || 'Unnamed pin') + '&rdquo; lands on top of your existing set &ldquo;' + esc(matches[0].targetName || 'Unnamed set') + '&rdquo;.</p>'
+    : '<p>' + n + ' pins in this import land on top of sets already on this line. Pick once &mdash; your answer covers every spot-match in this import.</p>';
   showModal(
     '<h3>Pin already here?</h3>' +
-    '<p>&ldquo;' + esc(pin.name || 'Unnamed pin') + '&rdquo; lands on top of your existing set &ldquo;' + esc(set.name || 'Unnamed set') + '&rdquo;.</p>' +
+    body +
     '<div class="btn-row">' +
-    '<button class="btn-secondary" id="m-pin-skip" type="button">Skip</button>' +
-    '<button class="btn-secondary" id="m-pin-merge" type="button">Merge</button>' +
-    '<button class="btn-danger" id="m-pin-delete" type="button">Delete incoming pin</button>' +
+    '<button class="btn-secondary" id="m-pin-skip" type="button">' + (n === 1 ? 'Skip' : 'Skip all') + '</button>' +
+    '<button class="btn-secondary" id="m-pin-merge" type="button">' + (n === 1 ? 'Merge' : 'Merge all') + '</button>' +
+    '<button class="btn-danger" id="m-pin-delete" type="button">' + (n === 1 ? 'Delete incoming pin' : 'Delete all incoming') + '</button>' +
     '</div>' +
-    '<p class="dim" style="margin-bottom:0">Delete incoming pin throws away just this import &mdash; your app data is untouched.</p>'
+    '<p class="dim" style="margin-bottom:0">Delete incoming throws away just ' + (n === 1 ? 'this import' : 'those imports') + ' &mdash; your app data is untouched.</p>'
   );
   $('m-pin-skip').onclick = function () { closeModal(); cb('skip'); };
   $('m-pin-merge').onclick = function () { closeModal(); cb('merge'); };
@@ -12386,7 +12547,6 @@ function runPinImportNow(pins, noLoc, opts) {
 }
 function plantImportedPins(pins, noLoc, lineId, counts, opts) {
   var existing = activeSets().slice();
-  var i = 0;
   var focusId = null;
   function finish() {
     Store.save(); refreshMarkers(); renderHistory(); renderTotals();
@@ -12410,29 +12570,57 @@ function plantImportedPins(pins, noLoc, lineId, counts, opts) {
       jumpToSet(focusId);
     }
   }
-  function next() {
-    if (i >= pins.length) { finish(); return; }
-    var pin = pins[i++];
+  /* (2026-11-26, Tanner): the spot-match question is asked ONCE for
+     the whole run, like the name question — the old loop asked per
+     pin, and a bulk re-import (21 pins over a line already holding
+     them) stacked a dialog per match. So the run is CLASSIFIED
+     first: each pin is matched against the standing sets and the
+     spots of pins classified fresh ahead of it (the same occupancy
+     the old walk built as it went). One answer — skip, merge, or
+     delete incoming — then governs every match when the plan plants
+     in order; a match whose target is a pin planted earlier in this
+     same run resolves to that planted set. */
+  var spots = existing.slice();
+  var plan = pins.map(function (pin) {
     var dup = null;
-    for (var j = 0; j < existing.length; j++) {
-      if (pinNearSet(pin, existing[j])) { dup = existing[j]; break; }
+    for (var j = 0; j < spots.length; j++) {
+      if (pinNearSet(pin, spots[j])) { dup = spots[j]; break; }
     }
+    var entry = { pin: pin, dup: dup, planted: null, spot: null };
     if (!dup) {
-      var ns = addImportedSet(pin, lineId);
-      existing.push(ns);
-      focusId = ns.id;
-      counts.imported++;
-      next();
-      return;
+      entry.spot = { lat: pin.lat, lng: pin.lng, _entry: entry };
+      spots.push(entry.spot);
     }
-    askPinDuplicate(pin, dup, function (choice) {
-      if (choice === 'merge') { mergePinIntoSet(pin, dup); focusId = dup.id; counts.merged++; }
+    return entry;
+  });
+  var matchEntries = plan.filter(function (e) { return !!e.dup; });
+  function targetOf(e) {
+    return (e.dup && e.dup._entry) ? e.dup._entry.planted : e.dup;
+  }
+  function targetNameOf(e) {
+    if (e.dup && e.dup._entry) return e.dup._entry.pin.name;
+    return e.dup ? e.dup.name : '';
+  }
+  function plantAll(choice) {
+    plan.forEach(function (e) {
+      if (!e.dup) {
+        var ns = addImportedSet(e.pin, lineId);
+        e.planted = ns;
+        focusId = ns.id;
+        counts.imported++;
+        return;
+      }
+      var target = targetOf(e);
+      if (choice === 'merge' && target) { mergePinIntoSet(e.pin, target); focusId = target.id; counts.merged++; }
       else if (choice === 'delete') { counts.deleted++; }
       else { counts.skipped++; }
-      next();
     });
+    finish();
   }
-  next();
+  if (!matchEntries.length) { plantAll(null); return; }
+  askPinDuplicateRun(matchEntries.map(function (e) {
+    return { pinName: e.pin.name, targetName: targetNameOf(e) };
+  }), function (choice) { plantAll(choice); });
 }
 function eraseAll() {
   /* B29: math gate first (shared harder version) — then the typed confirmation. */
@@ -13065,10 +13253,10 @@ function enterMain() {
     Store.save(); refreshMarkers();
     toast(this.checked ? 'Wind arrows are on.' : 'Wind arrows are off.');
   };
-  /* gn → 2026-11-25 stack: My Trap Tag lives in Paperwork as a
-     staged stack of tag rows under an explicit Save (see the My
-     Trap Tag stack module at renderTrapTagSection / saveTrapTags);
-     the old single field's silent change-commit is retired. */
+  /* My Trap Tag lives in Paperwork as a list of saved tags with a
+     landowner-style editor (see the My Trap Tag module at
+     renderTrapTagSection / openTrapTagForm); the old single field's
+     silent change-commit is retired. */
   wireTrapTagSection();
   /* Q103: GPS coordinates stay hidden (screenshot-safe) unless this is on. Default off. */
   $('settings-showcoords').checked = !!Store.data.showCoords;
@@ -14226,6 +14414,7 @@ function wireUp() {
   /* log sheet */
   /* Q12: Other-event species + log notes learn from use, tap-to-fill */
   attachSuggest('log-species-free', 'log-species-free-suggest', 'otherspecies');
+  attachSuggest('log-species-custom', 'log-species-custom-suggest', 'catchspecies');
   /* #6 (2026-10-01): Tanner — no tap-to-fill suggestions on catch-log notes either. */
   $('log-species-search').oninput = function () { renderSpeciesList(this.value); };
   var dispBtns = document.querySelectorAll('#log-disposition button');
