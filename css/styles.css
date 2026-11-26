@@ -387,6 +387,7 @@ body.home-picking #show-pill, body.home-picking #sel-bar { visibility: hidden; }
    under the (already centered) set name — name and pill read as one
    centered stack. */
 #sd-badges { text-align: center; }
+#mk-badges { text-align: center; }
 /* ho (Q254): opened collapsible headers land just under the fixed bars. */
 .setsec-head, .totals-card-head { scroll-margin-top: 8px; }
 /* hn (2026-11-21, Tanner): the attribution bar, quieter — smaller type on a
@@ -725,6 +726,18 @@ html.kb-open .note-row-armed {
   position: fixed; left: 0; right: 0; bottom: var(--kb-inset, 0px);
   z-index: 30; margin: 0; padding: 10px 16px;
   background: var(--sheet); border-top: 1px solid var(--line); }
+/* (2026-11-25 evening, Tanner's field report on Build 105): the pinned
+   row above was invisible to the focus scroll's math — keyboard.js
+   stops the focused box above the KEYBOARD line (scroll-padding =
+   --kb-inset), but the armed row occupies ~70px of visible band above
+   that line, and the dictation tip sits directly under the box, so the
+   tip's bottom line rested behind the pinned Save note row ("It
+   appears to cut off the bottom line of that message"). The five
+   armed composers (NOTE_ACTION_ROWS) carry a scroll margin that
+   extends the focus scroll's target box past the tip (~50px) and the
+   pinned row (~70px), so box, tip and button all land clear. */
+html.kb-open #sf-notes, html.kb-open #log-notes, html.kb-open #mk-note,
+html.kb-open #lo-notes, html.kb-open #lo-boundary-note { scroll-margin-bottom: 140px; }
 .pane-head { padding: 16px 14px 6px; }
 /* Q111 (2026-10-01): Tanner — app-wide type hierarchy. 1) Screen heading:
    large, bold, centered. */
@@ -846,6 +859,7 @@ html.kb-open .note-row-armed {
 .badge.closed { background: #3a1f1b; color: #f0a49c; border: 1px solid #6e2f28; }
 .badge.yearround { background: #16283d; color: #9cc0ee; border: 1px solid #2f4d6e; }
 .badge.status-active { background: #1d3a1d; color: #9ed69a; }
+.badge.mk-kind-badge { background: #1d3a1d; color: #9ed69a; }
 /* Q140 (2026-10-01): Tanner — stacked-pin menu rows. Full-width tappable
    rows: set name left, status badge + trap type right. */
 .stack-row { display: flex; align-items: center; gap: 10px; width: 100%;
@@ -1248,7 +1262,9 @@ body.editor-lock #btn-track { pointer-events: none; opacity: .45; }
    row now gets its own divider so it reads as a separate row. Border goes on
    both dt and dd so the line spans the full width of the grid. */
 #sd-fields > dt:not(:first-child),
-#sd-fields > dd:not(:nth-child(2)) { border-top: 1px solid var(--line); padding-top: 9px; }
+#sd-fields > dd:not(:nth-child(2)),
+#mk-fields > dt:not(:first-child),
+#mk-fields > dd:not(:nth-child(2)) { border-top: 1px solid var(--line); padding-top: 9px; }
 .season-group-head { font-size: 15px; font-weight: 800; color: var(--accent); margin: 18px 0 8px; text-align: center; }
 .log-row { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .log-row .lr-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -1619,7 +1635,12 @@ body.placing #route-back-chip { display: none; }
 .mk-fam-head { font-size: 12.5px; font-weight: 800; letter-spacing: 1.1px; color: #8a6d3b; margin: 16px 0 4px; text-transform: uppercase; }
 .mk-kind-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 7px 4px; background: none; border: none; border-bottom: 1px solid var(--line); font-size: 16.5px; color: inherit; text-align: left; cursor: pointer; }
 .mk-kind-nm { flex: 1; }
-.mk-disclaimer { background: #fdf3d7; border: 1px solid #e3cf8f; border-radius: 10px; padding: 9px 12px; font-size: 13.5px; color: #5a4712; margin: 8px 0; }
+/* (2026-11-25 evening, Tanner, from the New marker form): the
+   foraging disclaimer wears the Seasons disclaimer's rust-red tint
+   (#46221a / #743c2c, gold-cream text — the #seasons-disclaimer
+   treatment), not the pale cream box it shipped with. One class,
+   every surface: the marker form and the sign reference alike. */
+.mk-disclaimer { background: #46221a; border: 1px solid #743c2c; border-radius: 10px; padding: 9px 12px; font-size: 13.5px; color: #f5cf7a; margin: 8px 0; }
 .mk-detail-head { display: flex; gap: 14px; align-items: center; margin-bottom: 10px; }
 .mk-detail-head h3 { margin: 0; }
 .mk-note-card p, .mk-info-card p { margin: 4px 0; }
