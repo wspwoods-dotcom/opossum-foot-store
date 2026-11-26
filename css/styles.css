@@ -570,7 +570,14 @@ body[data-pinscheme="pastel"] { --pin-active:#a9d6a5; --pin-sprung:#eacd7d; --pi
   background: var(--panel); color: var(--muted); border: 1px solid var(--line);
   font-size: 13px; font-weight: 600; line-height: 1; padding: 0 13px; }
 .clear-pill.clear-x { width: 38px; padding: 0; border-radius: 50%;
-  color: var(--accent); font-size: 18px; }
+  color: var(--accent); font-size: 18px;
+  /* (2026-11-25 late, Build 111 field defect): the global button
+     rule's min-height: var(--tap) (52px) silently floored this
+     pill's height, so the "round 38px" x rendered 38x52 — the tall
+     oval in Tanner's My Trap Tag screenshot. It was never round
+     anywhere; the isolated row just made it visible. The design
+     size stands: min-height comes down to meet it. */
+  min-height: 38px; }
 .clear-pill:active { background: var(--line); }
 .clear-pill[hidden] { display: none; }
 .clear-wrap.search-wrap { position: relative; display: block; }
@@ -933,6 +940,10 @@ html.kb-open #lo-notes, html.kb-open #lo-boundary-note { scroll-margin-bottom: 1
 .species-row .sp-name { flex: 1; }
 .species-row .sp-name .sci { display: block; font-size: 13px; color: var(--faint); font-style: italic; font-weight: 400; }
 .species-row.selected { border-color: var(--accent); background: #2c2413; }
+/* 2026-11-26: the species search Add row and the forget × on a remembered
+   Other-animal card in the Log a Catch species list. */
+.species-row.addrow { border-style: dashed; }
+.species-row .sp-forget { flex: none; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 50%; font-size: 18px; line-height: 1; color: var(--faint); cursor: pointer; }
 /* Species silhouettes are black-on-transparent; invert to light-on-dark theme. */
 .sp-icon { width: 40px; height: 40px; object-fit: contain; flex: none; filter: invert(1); }
 .sp-icon-lg { width: 56px; height: 56px; object-fit: contain; flex: none; filter: invert(1); }
@@ -1222,6 +1233,10 @@ body.editor-lock #btn-add-gps,
 body.editor-lock #btn-mark,
 body.editor-lock #btn-measure,
 body.editor-lock #btn-track { pointer-events: none; opacity: .45; }
+/* Permission gate in flight (2026-11-25 late): the track FAB pulses
+   while the gate checks, so a start never sits silent. */
+#btn-track.gate-busy { opacity: .55; animation: gate-busy-pulse 1s ease-in-out infinite; }
+@keyframes gate-busy-pulse { 0%, 100% { opacity: .55; } 50% { opacity: .3; } }
 
 /* ---- trap lines ---- */
 .line-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
