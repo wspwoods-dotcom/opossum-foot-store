@@ -294,26 +294,57 @@ var Tracking = (function () {
      The sheet is guidance, not a veto: OK, the ×, or the scrim —
      any dismissal — begins the track, which then records under
      While Using (beginTrack's own state guard makes a second begin
-     a no-op). No native plugin (web) or a broken check -> begin at
+     a no-op). [SUPERSEDED 2026-11-25 evening by Tanner's field
+     ruling: OK alone begins; the × and the scrim EXIT the start —
+     see watchGateSheet.] No native plugin (web) or a broken check -> begin at
      once: a gate that can fail closed on a trapper's track is worse
      than no gate. Mid-track paths (rearmIfStale, the watchdog) call
      startNativeWatch / engageFallback only — the gate is at the
      door only, and this function is the sheet's sole opener. */
+  /* 2026-11-25 evening (Build 105 field test, item 15 — FAILED as
+     built): the gate ran one permission chain PER TAP with nothing
+     keeping a second tap out. On Tanner's phone the first tap's
+     requestPermissions sat unanswered (iOS defers the Always-upgrade
+     answer when it has offered it before) — the tap looked dead. The
+     second tap ran a SECOND chain, which raised the sheet; OK began
+     the track — and then the FIRST chain's late answer arrived,
+     re-armed the pending flag, and opened the sheet AGAIN over the
+     live track. He had to hit OK twice to clear it. One defect, all
+     three symptoms. The gate is now SINGLE-FLIGHT with a generation
+     counter: a tap while an exchange is running is a no-op, not a
+     second chain; each chain may act only while its generation is
+     current, and reaching an outcome (begin or sheet) retires it; a
+     chain whose phone never answers is invalidated after 10 s so the
+     next tap starts fresh and the stale answer, whenever it lands,
+     is ignored whole; and sheetGo refuses outright once a track is
+     running — the warning can never rise over a live track again. */
   var gateBeginPending = false;
+  var gateInFlight = false;
+  var gateGen = 0;
   function gateThenBegin() {
     if (state !== 'idle') return;
+    if (gateInFlight) return;
     var bg = nativeBG();
     if (!bg || typeof bg.checkPermissions !== 'function') { beginTrack(); return; }
-    var routed = false;
-    function go() { if (!routed) { routed = true; beginTrack(); } }
+    gateInFlight = true;
+    var gen = ++gateGen;
+    setTimeout(function () {
+      if (gateInFlight && gen === gateGen) { gateGen++; gateInFlight = false; }
+    }, 10000);
+    function live() { return gen === gateGen; }
+    function retire() { gateGen++; gateInFlight = false; }
+    function go() { if (!live()) return; retire(); beginTrack(); }
     function sheetGo() {
-      if (routed) return;
-      routed = true;
+      if (!live()) return;
+      retire();
+      if (state !== 'idle') return;
       gateBeginPending = true;
+      gateOkDismiss = false;
       openSheet('sheet-tracking-permission');
     }
     try {
       bg.checkPermissions().then(function (st) {
+        if (!live()) return;
         if (!st) { go(); return; }
         var b = st.backgroundLocation;
         if (b === 'always' || b === 'granted') { go(); return; }
@@ -333,15 +364,26 @@ var Tracking = (function () {
      handler, the ×'s data-close wiring, the scrim — and another sheet
      taking its place, since openSheet closes first) ends in the
      sheet losing .show. One observer on that class is therefore the
-     single hook all dismissal paths run through; it begins the
-     pending track exactly once and only when a gate is waiting. */
+     single hook all dismissal paths run through.
+     2026-11-25 evening (Tanner's ruling, same field test): the paths
+     SPLIT. OK is the acknowledgment — it alone begins the pending
+     track. The × (and the scrim, and another sheet taking its place)
+     is an EXIT: it cancels the start outright — "it doesn't exit out
+     of the function, it just starts tracking either way" was his
+     verdict on the old any-dismissal-begins law, and he is right: a
+     close control that commits the very thing it closes is a trap.
+     The OK handler sets gateOkDismiss on its way out; the funnel
+     reads it once and clears it either way. */
+  var gateOkDismiss = false;
   function watchGateSheet() {
     var sh = $('sheet-tracking-permission');
     if (!sh || typeof MutationObserver !== 'function') return;
     new MutationObserver(function () {
       if (gateBeginPending && !sh.classList.contains('show')) {
+        var begin = gateOkDismiss;
         gateBeginPending = false;
-        beginTrack();
+        gateOkDismiss = false;
+        if (begin && state === 'idle') beginTrack();
       }
     }).observe(sh, { attributes: true, attributeFilter: ['class'] });
   }
@@ -1866,9 +1908,10 @@ var Tracking = (function () {
        and on explicit per-button handlers like this one), so the button
        was dead on the phone and the sheet could only be escaped via the
        × or the scrim. Wire it explicitly, like every other sheet action. */
-    var pk = $('btn-tracking-permission-ok'); if (pk) pk.onclick = function () { closeSheets(); };
-    /* Item 22: arm the gate sheet's dismissal funnel (any dismissal
-       of a gate-raised sheet begins the pending track). */
+    var pk = $('btn-tracking-permission-ok'); if (pk) pk.onclick = function () { gateOkDismiss = true; closeSheets(); };
+    /* Item 22: arm the gate sheet's dismissal funnel. 2026-11-25
+       evening: OK begins the pending track; every other way off the
+       sheet cancels the start (Tanner's ruling — see watchGateSheet). */
     watchGateSheet();
     /* 2026-11-24 (next build): the prominent disclosure's two doors.
        Continue records the showing in the settings storage and walks
