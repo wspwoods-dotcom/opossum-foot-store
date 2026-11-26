@@ -287,9 +287,9 @@ var Tracking = (function () {
        prompt family -> begin at once, NO sheet (2026-11-24 law: the
          system's own prompt, fired by startNativeWatch's
          requestPermissions:true, is making the ask — never pile on).
-       when_in_use -> make the system ask FIRST (requestPermissions):
-         granted -> begin, no sheet; not granted -> the sheet, and
-         the track begins when the sheet is dismissed.
+       when_in_use -> the sheet at once, no system re-ask
+         (2026-11-25 late ruling, below); the track begins only if
+         the sheet's OK dismisses it.
        denied -> the sheet before begin, same dismissal-begins rule.
      The sheet is guidance, not a veto: OK, the ×, or the scrim —
      any dismissal — begins the track, which then records under
@@ -318,6 +318,18 @@ var Tracking = (function () {
      next tap starts fresh and the stale answer, whenever it lands,
      is ignored whole; and sheetGo refuses outright once a track is
      running — the warning can never rise over a live track again. */
+  /* 2026-11-25 late (Build 111 field test, item 15 retest): both
+     dismissal doors now behave — the × exits, OK begins once — but
+     Tanner still "had to hit the tracking button a lot before it
+     registered": the when_in_use branch's system re-ask
+     (requestPermissions) is the slow step on his phone, and the
+     button sat silent while it hung. His ruling: RAISE OUR SHEET
+     IMMEDIATELY at While Using. The sheet already carries the exact
+     Settings steps, which are the only road to 'Always' once iOS
+     stops offering the upgrade in-flow — nothing is lost but the
+     wait. The gate also marks the track FAB .gate-busy for the
+     length of its (now short) check, so the button never sits
+     silent again. */
   var gateBeginPending = false;
   var gateInFlight = false;
   var gateGen = 0;
@@ -328,11 +340,13 @@ var Tracking = (function () {
     if (!bg || typeof bg.checkPermissions !== 'function') { beginTrack(); return; }
     gateInFlight = true;
     var gen = ++gateGen;
+    var fab = $('btn-track'); if (fab) fab.classList.add('gate-busy');
     setTimeout(function () {
-      if (gateInFlight && gen === gateGen) { gateGen++; gateInFlight = false; }
+      if (gateInFlight && gen === gateGen) { gateGen++; gateInFlight = false; gateBusyOff(); }
     }, 10000);
+    function gateBusyOff() { var f = $('btn-track'); if (f) f.classList.remove('gate-busy'); }
     function live() { return gen === gateGen; }
-    function retire() { gateGen++; gateInFlight = false; }
+    function retire() { gateGen++; gateInFlight = false; gateBusyOff(); }
     function go() { if (!live()) return; retire(); beginTrack(); }
     function sheetGo() {
       if (!live()) return;
@@ -349,13 +363,8 @@ var Tracking = (function () {
         var b = st.backgroundLocation;
         if (b === 'always' || b === 'granted') { go(); return; }
         if (b === 'prompt' || b === 'prompt-with-rationale' || st.location === 'prompt' || st.location === 'prompt-with-rationale') { go(); return; }
-        if (b === 'when_in_use' && typeof bg.requestPermissions === 'function') {
-          bg.requestPermissions({ permissions: ['backgroundLocation'] }).then(function (st2) {
-            var b2 = st2 && st2.backgroundLocation;
-            if (b2 === 'always' || b2 === 'granted') go(); else sheetGo();
-          }).catch(function () { sheetGo(); });
-        } else if (b === 'when_in_use' || b === 'denied' || st.location === 'denied') {
-          sheetGo();
+        if (b === 'when_in_use' || b === 'denied' || st.location === 'denied') {
+          sheetGo(); /* when_in_use: sheet immediately — no system re-ask (2026-11-25 late ruling) */
         } else { go(); }
       }).catch(function () { go(); });
     } catch (e) { go(); }
