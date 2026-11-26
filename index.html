@@ -272,26 +272,25 @@
            and the catch tag records in My Tags. Its own section,
            never gated by the Tag records toggle: that switch governs
            catch tag records, not this.
-           (2026-11-25, later, Tanner): the single field became a
-           STACK of tag rows under one explicit Save — a trapper's
-           iron can carry different wordings at once (name & address
-           on some traps, a state ID number on others), and the old
-           field committed silently on change with no button and no
-           confirmation. Rows stage in the section until Save; each
-           row can carry photos of the actual tag (IDB 'photos',
-           kind 'traptag', keyed by trapTagId — excluded from the
-           JSON backup exactly like license photos). The data
-           migrated Store.data.trapTag (one string) → Store.data
-           .trapTags (a list); Seasons reads it through
-           trapTagEntries() and shows every entry. -->
+           (2026-11-25, later, Tanner): a trapper's iron can carry
+           different tag wordings at once (name & address on some
+           traps, a state ID number on others), so the tags live as
+           a LIST — rebuilt the same night to the Landowner
+           Notebook's shape on his ruling ("build it like the
+           landowner list"): saved tags stand as cards in the
+           section, tap one to edit it in a docked editor, Delete
+           lives inside the editor. Each tag can carry photos of
+           the actual tag (IDB 'photos', kind 'traptag', keyed by
+           trapTagId — excluded from the JSON backup exactly like
+           license photos). The data migrated Store.data.trapTag
+           (one string) → Store.data.trapTags (a list); Seasons
+           reads it through trapTagEntries() and shows every
+           entry. -->
       <div class="card setsec" id="setsec-traptag">
         <button type="button" class="setsec-head" id="setsec-traptag-head" data-sec="setsec-traptag" aria-expanded="false"><span>My Trap Tag</span><span class="setsec-chev" aria-hidden="true">›</span></button>
         <div class="setsec-body" id="setsec-traptag-body" hidden>
-          <div id="traptag-rows"></div>
-          <button class="btn-small btn-ghost" id="btn-traptag-add" type="button">+ Add another tag</button>
-          <div class="btn-row" style="margin-top:10px">
-            <button class="btn-primary" id="btn-traptag-save" type="button">Save</button>
-          </div>
+          <div id="traptag-list"></div>
+          <button class="btn-secondary" id="btn-traptag-add" type="button">+ Add a tag</button>
           <input type="file" id="traptag-photo-input" class="hidden-file" accept="image/*">
           <p class="dim" style="margin-top:8px">What your trap tags say — many states require your name and address, or a state-issued ID number, on every trap. Kept on this phone only; it shows on the Seasons tab with your state's tag rule.</p>
         </div>
@@ -1162,6 +1161,14 @@
            species results narrowed and the rest of the form jumped up/down
            while typing. Fixed height keeps the form's geometry still. -->
       <div id="log-species-list" style="height:280px; overflow-y:auto; -webkit-overflow-scrolling:touch;"></div>
+      <!-- 2026-11-26 (Tanner, from Jeff Gareri's armadillo): the Other animal
+           door — a caught animal that is not on the state's list is named
+           here and logs as a real catch under its own name. -->
+      <div id="log-species-custom-row" hidden>
+        <label class="field" for="log-species-custom">What animal was it? <span class="req">*</span></label>
+        <input type="text" id="log-species-custom" placeholder="e.g. Armadillo" autocomplete="off">
+        <div class="suggest" id="log-species-custom-suggest"></div>
+      </div>
     </div>
     <div id="log-species-other" hidden>
       <label class="field" for="log-species-free">Species <span class="dim">(optional)</span></label>
