@@ -1970,7 +1970,12 @@ function refreshClearPillsIn(root) {
    keyboard (see styles.css). One mechanism, every notes surface in
    the Q195 family: the set form's Save note row; the catch log, whose
    notes commit is the sheet's Save catch; the marker form's Save
-   marker; the landowner modal's Save row (both of its notes boxes).
+   note row (2026-11-25 evening correction, Tanner's field report:
+   this entry armed the form's whole Save marker bar — the giant
+   primary bar tore out of the form's foot, floated over the page,
+   and cut the form off mid-typing; the composer's own commit is
+   Save note, as on the set form); the landowner modal's Save row
+   (both of its notes boxes).
    The memo rows (Record memo) have no keyboard-covered commit —
    recording runs with the keyboard down — so they are not armed.
    The post-catch sheet has no notes composer at all (tag fields
@@ -1978,7 +1983,7 @@ function refreshClearPillsIn(root) {
 var NOTE_ACTION_ROWS = {
   'sf-notes': function () { var b = $('btn-add-note'); return b ? b.closest('.btn-row') : null; },
   'log-notes': function () { var s = $('sheet-log'); return s ? s.querySelector('.sheet-actions') : null; },
-  'mk-note': function () { var s = $('sheet-marker-form'); return s ? s.querySelector('.sheet-actions') : null; },
+  'mk-note': function () { var b = $('btn-mk-add-note'); return b ? b.closest('.btn-row') : null; },
   'lo-notes': function () { var b = $('lo-save'); return b ? b.closest('.btn-row') : null; },
   'lo-boundary-note': function () { var b = $('lo-save'); return b ? b.closest('.btn-row') : null; }
 };
@@ -2324,14 +2329,25 @@ function comboAttach(inputId, boxId, getOptions, opts) {
     /* Picker era (2026-11-25): read-only trigger, same as the
        suggestion fields — typing lives in the picker's search box. */
     input.readOnly = true;
-    var wrap = document.createElement('span');
-    wrap.className = 'clear-wrap';
-    input.parentNode.insertBefore(wrap, input);
-    wrap.appendChild(input);
-    /* (2026-11-25): the beside-the-box "Clear" pill — see
-       makeClearPill. Fields that never had the inside × (Trap Type,
-       Set Type, Variation) get their first clear here. */
-    var clearBtn = makeClearPill(wrap);
+    /* (2026-11-25 evening, Tanner's field report — the marker form's
+       double ×): a field the boot sweep already wrapped (mk-kind is
+       wired by markers.js AFTER the sweep's ensureClearInput reached
+       it) must not be wrapped again — the second wrap grew a second
+       pill beside the first. Adopt the standing wrap and pill; the
+       click handler below replaces the sweep's, whose 'input'-only
+       dispatch would leave this combo's pick standing. */
+    var wrap = input.closest ? input.closest('.clear-wrap') : null;
+    var clearBtn = wrap ? wrap.querySelector(':scope > button') : null;
+    if (!clearBtn) {
+      wrap = document.createElement('span');
+      wrap.className = 'clear-wrap';
+      input.parentNode.insertBefore(wrap, input);
+      wrap.appendChild(input);
+      /* (2026-11-25): the beside-the-box "Clear" pill — see
+         makeClearPill. Fields that never had the inside × (Trap Type,
+         Set Type, Variation) get their first clear here. */
+      clearBtn = makeClearPill(wrap);
+    }
     clearBtn.hidden = !input.value || (noneFace && input.value === 'None');
     input._clearPill = clearBtn; input._clearNoneFace = noneFace; /* load-state refresh registry — see refreshClearPill */
     clearBtn.onclick = function (e) {
@@ -5152,18 +5168,32 @@ function saveSetForm(overwriteConfirmed) {
      name still runs the scan below and walls exactly as before; a new
      set has no own name and is unchanged. */
   var keepsOwnName = false;
+  /* (2026-11-25 evening, Tanner — the per-line ruling): the name guard
+     lives on the line this set belongs to, and NOWHERE else. A save
+     must never be blocked by — and a confirmed overwrite must never
+     delete — a set on another line. Field case (Build 105 test):
+     renaming a set on the Test line to match its same-line neighbor,
+     the old app-wide scan found a same-name set on the 2025-2026 line
+     first (storage order), named IT in both dialogs, and deleted it,
+     while the neighbor beside the edited set stood untouched. The
+     guard's line: the edited set's own line, or the active line for
+     a new set (which is where it lands — see ns.lineId below). */
+  var guardLineId = null;
   if (editingSetId) {
     for (var oi = 0; oi < Store.data.sets.length; oi++) {
       if (Store.data.sets[oi].id === editingSetId) {
         keepsOwnName = String(Store.data.sets[oi].name || '').trim().toLowerCase() === name.toLowerCase();
+        guardLineId = Store.data.sets[oi].lineId;
         break;
       }
     }
   }
+  if (guardLineId === null || guardLineId === undefined) guardLineId = activeLineId();
   if (!keepsOwnName) {
     for (var di = 0; di < Store.data.sets.length; di++) {
       var ds = Store.data.sets[di];
       if (editingSetId && ds.id === editingSetId) continue;
+      if (ds.lineId !== guardLineId) continue; /* per-line ruling: other lines are invisible to this guard */
       if (String(ds.name || '').trim().toLowerCase() === name.toLowerCase()) { dupSet = ds; break; }
     }
   }
@@ -9797,17 +9827,23 @@ function renderTrapTagRows() {
   trapTagStaged.forEach(function (row, idx) {
     var wrap = document.createElement('div');
     wrap.className = 'attr-row';
-    var sw = document.createElement('div');
-    sw.className = 'suggest-wrap';
+    /* (2026-11-25 evening, Tanner: "It should look similar to what the
+       other pages do" / "More consistency") — the row is built from the
+       attractant stack's own parts: the input carries .attr-row-input
+       (the old build wrapped it in a .suggest-wrap nothing flexed, so
+       the box sprawled) and Remove carries .attr-row-x, the stack's
+       pill. The old build invented a 'remove-pill' class with NO CSS
+       rule anywhere — iOS painted it as a native white button with
+       blue text, matching nothing in the app. */
     var input = document.createElement('input');
     input.type = 'text';
+    input.className = 'attr-row-input';
     input.value = row.text;
     input.placeholder = 'Name & address, or state ID number';
     input.setAttribute('autocomplete', 'off');
     input.setAttribute('aria-label', 'Trap tag');
     input.addEventListener('input', function () { row.text = this.value; });
-    sw.appendChild(input);
-    wrap.appendChild(sw);
+    wrap.appendChild(input);
     /* Stacked-row law (2026-11-25): a row in a stack of 2+ carries
        ONLY Remove; the clear × belongs to the lone row, which is a
        single field. The render rebuilds on every add/remove, so
@@ -9815,28 +9851,45 @@ function renderTrapTagRows() {
     if (!multi) ensureClearInput(input, { noneFace: false });
     if (multi) {
       var rm = document.createElement('button');
-      rm.type = 'button'; rm.className = 'remove-pill'; rm.textContent = 'Remove';
+      rm.type = 'button'; rm.className = 'attr-row-x'; rm.textContent = 'Remove';
       rm.setAttribute('aria-label', 'Remove this tag');
-      rm.onclick = function () { trapTagStaged.splice(idx, 1); renderTrapTagRows(); };
+      rm.onclick = function () {
+        /* (2026-11-25 evening, Tanner's field report): his real saved
+           tag vanished on one tap with no prompt. A row holding a
+           SAVED tag (text or photos on the record) asks first, in the
+           app's delete-confirm shape; a fresh, never-saved row still
+           removes silently. */
+        var saved = trapTagEntries().some(function (e) { return e.id === row.id; });
+        var doRemove = function () { trapTagStaged.splice(idx, 1); renderTrapTagRows(); };
+        if (saved && (row.text.trim() || row.photos.length)) {
+          confirmModal('Remove this tag?',
+            'This tag will be deleted when you tap Save. Once saved, it is gone for good.',
+            'Remove', doRemove);
+        } else doRemove();
+      };
       wrap.appendChild(rm);
     }
     box.appendChild(wrap);
+    /* Photos in the set form's own arrangement: the ghost add button,
+       then the .photo-strip under it (an empty strip hides itself). */
     var prow = document.createElement('div');
-    prow.className = 'traptag-photos';
-    prow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px';
+    var add = document.createElement('button');
+    add.type = 'button'; add.className = 'btn-small btn-ghost'; add.textContent = '+ Add a photo';
+    add.onclick = function () { trapTagPhotoTarget = idx; var fi = $('traptag-photo-input'); if (fi) fi.click(); };
+    prow.appendChild(add);
+    box.appendChild(prow);
+    var strip = document.createElement('div');
+    strip.className = 'photo-strip';
+    strip.style.marginTop = '8px';
     row.photos.forEach(function (ph, pi) {
       var img = document.createElement('img');
       img.className = 'photo-thumb'; img.alt = 'Trap tag photo';
       img.src = URL.createObjectURL(ph.blob);
       img.title = 'Tap to enlarge';
       img.onclick = function () { openTrapTagPhotoViewer(idx, pi); };
-      prow.appendChild(img);
+      strip.appendChild(img);
     });
-    var add = document.createElement('button');
-    add.type = 'button'; add.className = 'btn-small btn-ghost'; add.textContent = '+ Add a photo';
-    add.onclick = function () { trapTagPhotoTarget = idx; var fi = $('traptag-photo-input'); if (fi) fi.click(); };
-    prow.appendChild(add);
-    box.appendChild(prow);
+    box.appendChild(strip);
   });
   var addBtn = $('btn-traptag-add');
   if (addBtn) addBtn.style.display = trapTagStaged.length >= TRAPTAG_MAX_ROWS ? 'none' : '';
@@ -9902,6 +9955,23 @@ function saveTrapTags() {
 }
 
 function wireTrapTagSection() {
+  /* (2026-11-25 evening, Tanner's field report): "When you say it
+     doesn't really save anything" — the staged model promised edits
+     live only until Save, but this section is a collapsible in a pane,
+     not a sheet: closing it kept the staged edits standing, so there
+     was no way to abandon them and a later Save committed removals he
+     had forgotten making. Now closing the section DISCARDS the staged
+     state, the way closing a sheet does; reopening stages fresh from
+     the saved tags, so what you see is what is actually saved. */
+  var ttHead = $('setsec-traptag-head');
+  if (ttHead) ttHead.addEventListener('click', function () {
+    setTimeout(function () {
+      var sec = $('setsec-traptag');
+      if (!sec) return;
+      if (!sec.classList.contains('open')) { trapTagStaged = null; }
+      else if (trapTagStaged === null) { renderTrapTagSection(); }
+    }, 0);
+  });
   var add = $('btn-traptag-add');
   if (add) add.onclick = function () {
     if (!trapTagStaged) stageTrapTags();
@@ -12133,7 +12203,7 @@ function importPinFromLink() {
     function done(coords) {
       if (!coords) { toast('Could not find a location in that link.'); return; }
       closeModal();
-      runPinImport([{ name: placeNameFromMapsUrl(url), lat: coords.lat, lng: coords.lng }], []);
+      runPinImport([{ name: placeNameFromMapsUrl(url), lat: coords.lat, lng: coords.lng }], [], { focusMap: true });
     }
     var hit = coordsFromMapsUrl(url);
     if (hit) { done(hit); return; }
@@ -12149,16 +12219,17 @@ function importPinFromLink() {
 /* (Item 20-C, 2026-11-25, Tanner — Option D): a planted pin whose name
    is already borne takes the next free number AT THE DOOR: the first
    bearer keeps the bare name; duplicates land "Name 2", "Name 3", …,
-   skipping any number already taken. The check is APP-WIDE because
-   the save guard's is (Q270 scans every set on every line — a pin
-   planted bare here while another line bears the name would wall that
-   set's first edit). Pins planted earlier in the same run are already
+   skipping any number already taken. The check is scoped to the
+   line the pin lands on (2026-11-25 evening, Tanner — the per-line
+   ruling, matching the save guard's scope): a name borne only on
+   another line does not number this pin. Pins planted earlier in the same run are already
    in Store.data.sets, so they count. Existing piles are NOT renamed —
    this governs the door, not the past. */
-function importedSetName(rawName) {
+function importedSetName(rawName, lineId) {
   var base = String(rawName || '').trim() || 'Imported set';
   var taken = {};
   (Store.data.sets || []).forEach(function (s) {
+    if (s.lineId !== lineId) return;
     taken[String(s.name || '').trim().toLowerCase()] = true;
   });
   if (!taken[base.toLowerCase()]) return base;
@@ -12172,7 +12243,7 @@ function importedSetName(rawName) {
 function addImportedSet(pin, lineId) {
   var s = {
     id: uid('s'),
-    name: importedSetName(pin.name),
+    name: importedSetName(pin.name, lineId),
     lat: pin.lat, lng: pin.lng,
     county: null,
     trapType: '', setType: '',
@@ -12209,7 +12280,75 @@ function askPinDuplicate(pin, set, cb) {
   $('m-pin-merge').onclick = function () { closeModal(); cb('merge'); };
   $('m-pin-delete').onclick = function () { closeModal(); cb('delete'); };
 }
-function runPinImport(pins, noLoc) {
+/* (2026-11-25 evening, Tanner — the import half of the name design):
+   when incoming pins carry a name that a set ALREADY ON THIS LINE
+   bears, the trapper chooses, ONCE per name, for the whole run:
+   throw the incoming pins away, delete the set(s) on this line, or
+   rename the incoming (they take numbers). A pure auto-number (the
+   old item 20-C silence) is gone for pre-existing collisions: names
+   also arrive through doors that never blocked — imports, clones —
+   so a wall with no asked resolution would strand the name. Pins
+   whose names collide only with EACH OTHER still number silently
+   in addImportedSet; other lines are never consulted (the per-line
+   ruling). Deleting is Q38-honest: the dialog itself carries the
+   gone-forever warning, and a pile is counted in it — the delete
+   choice purges every bearer of that name on this line, because
+   asking once means the answer must clear the name completely. */
+function askPinNameCollision(group, bearers, cb) {
+  var nm = group[0].name || 'Unnamed pin';
+  var nPins = group.length, nSets = bearers.length;
+  showModal(
+    '<h3>Name already on this line</h3>' +
+    '<p>' + nPins + ' incoming pin' + (nPins === 1 ? '' : 's') + ' named &ldquo;' + esc(nm) + '&rdquo;, and this line already has ' +
+    nSets + ' set' + (nSets === 1 ? '' : 's') + ' with that name. Pick once — your answer covers every &ldquo;' + esc(nm) + '&rdquo; in this import.</p>' +
+    '<p>Deleting the set' + (nSets === 1 ? '' : 's') + ' on this line removes ' + (nSets === 1 ? 'it' : 'them') + ' for good — catches, photos, and voice memos go too, History included.</p>' +
+    '<div class="btn-row">' +
+    '<button class="btn-secondary" id="m-nc-rename" type="button">Rename the incoming</button>' +
+    '<button class="btn-secondary" id="m-nc-discard" type="button">Throw away the incoming</button>' +
+    '<button class="btn-danger" id="m-nc-delete" type="button">' + (nSets === 1 ? 'Delete the set on this line' : 'Delete all ' + nSets + ' sets on this line') + '</button>' +
+    '</div>'
+  );
+  $('m-nc-rename').onclick = function () { closeModal(); cb('rename'); };
+  $('m-nc-discard').onclick = function () { closeModal(); cb('discard'); };
+  $('m-nc-delete').onclick = function () { closeModal(); cb('delete-existing'); };
+}
+function resolvePinNameCollisions(pins, lineId, counts, done) {
+  var pre = (Store.data.sets || []).filter(function (s) { return s.lineId === lineId; });
+  var byName = {};
+  pins.forEach(function (p) {
+    var k = normNameKey(p.name);
+    (byName[k] = byName[k] || []).push(p);
+  });
+  var clashKeys = Object.keys(byName).filter(function (k) {
+    return pre.some(function (s) { return normNameKey(s.name) === k; });
+  });
+  if (!clashKeys.length) { done(pins); return; }
+  var decisions = {};
+  var i = 0;
+  function nextKey() {
+    if (i >= clashKeys.length) {
+      done(pins.filter(function (p) { return decisions[normNameKey(p.name)] !== 'discard'; }));
+      return;
+    }
+    var k = clashKeys[i++];
+    var bearers = pre.filter(function (s) { return normNameKey(s.name) === k; });
+    askPinNameCollision(byName[k], bearers, function (choice) {
+      if (choice === 'discard') {
+        decisions[k] = 'discard';
+        counts.deleted += byName[k].length;
+      } else if (choice === 'delete-existing') {
+        bearers.forEach(function (s) { purgeSetEverywhere(s.id); });
+        /* the name stands free on this line now — the run's own
+           numbering gives the first pin the bare name, numbers rest */
+      }
+      /* 'rename': the standing bearer keeps the name; addImportedSet
+         numbers the incoming pins against this line, as before */
+      nextKey();
+    });
+  }
+  nextKey();
+}
+function runPinImport(pins, noLoc, opts) {
   /* 2026-11-23 (Tanner's gate law): pin files are counted at the door
      on a locked app, before any pin lands. Only genuinely new sets
      count — a pin that lands on a set already here (or on another
@@ -12228,18 +12367,27 @@ function runPinImport(pins, noLoc) {
     });
     Unlock.gatePinImport(
       { lineSets: activeSets().length, newSets: fresh },
-      function () { runPinImportNow(pins, noLoc); }
+      function () { runPinImportNow(pins, noLoc, opts); }
     );
     return;
   }
-  runPinImportNow(pins, noLoc);
+  runPinImportNow(pins, noLoc, opts);
 }
-function runPinImportNow(pins, noLoc) {
+function runPinImportNow(pins, noLoc, opts) {
   var lineId = activeLineId();
   if (!lineId) { toast('Add a trap line first.'); return; }
-  var existing = activeSets().slice();
   var counts = { imported: 0, skipped: 0, merged: 0, deleted: 0 };
+  /* (2026-11-25 evening, Tanner): a name that meets a set already on
+     this line is ASKED about, once per name — never silently
+     numbered over. The planting below runs on the kept pins. */
+  resolvePinNameCollisions(pins, lineId, counts, function (keptPins) {
+    plantImportedPins(keptPins, noLoc, lineId, counts, opts);
+  });
+}
+function plantImportedPins(pins, noLoc, lineId, counts, opts) {
+  var existing = activeSets().slice();
   var i = 0;
+  var focusId = null;
   function finish() {
     Store.save(); refreshMarkers(); renderHistory(); renderTotals();
     var msg = 'Pin import: ' + counts.imported + ' imported, ' + counts.skipped + ' skipped, ' + counts.merged + ' merged, ' + counts.deleted + ' deleted.';
@@ -12250,6 +12398,17 @@ function runPinImportNow(pins, noLoc) {
         noLoc.slice(0, 3).join(', ') + (noLoc.length > 3 ? '…' : '') + '.';
     }
     toast(msg);
+    /* (2026-11-25 evening, Tanner): a pin added from a pasted link
+       TAKES HIM TO IT on the map — the paste door is one pin, and
+       landing back on the Data tab left him hunting for it. Only
+       when a set stands at the end (planted or merged into); a
+       skipped or thrown-away pin stays put. jumpToSet is the app's
+       own jump: it un-filters the set's status and pauses follow so
+       the map does not snap back to his position. */
+    if (opts && opts.focusMap && focusId) {
+      switchTab('map');
+      jumpToSet(focusId);
+    }
   }
   function next() {
     if (i >= pins.length) { finish(); return; }
@@ -12259,13 +12418,15 @@ function runPinImportNow(pins, noLoc) {
       if (pinNearSet(pin, existing[j])) { dup = existing[j]; break; }
     }
     if (!dup) {
-      existing.push(addImportedSet(pin, lineId));
+      var ns = addImportedSet(pin, lineId);
+      existing.push(ns);
+      focusId = ns.id;
       counts.imported++;
       next();
       return;
     }
     askPinDuplicate(pin, dup, function (choice) {
-      if (choice === 'merge') { mergePinIntoSet(pin, dup); counts.merged++; }
+      if (choice === 'merge') { mergePinIntoSet(pin, dup); focusId = dup.id; counts.merged++; }
       else if (choice === 'delete') { counts.deleted++; }
       else { counts.skipped++; }
       next();
@@ -12451,6 +12612,14 @@ function refreshForLine() {
   scoreUI.species = ''; scoreUI.h2hA = ''; scoreUI.h2hB = ''; /* per-line picks */
   var hs = $('history-search'); if (hs) hs.value = '';
   refreshMarkers();
+  /* (2026-11-25 evening, Tanner's item-7 field failure on Build 105):
+     the sign layer never re-drew on a line switch — this function
+     re-renders the set pins and a dozen views, but Markers.render()
+     was never called here, so the previous line's signs stayed
+     painted (and tappable, and deletable) on every line he visited.
+     The render itself was always scoped correctly; it just never
+     ran. The sign layer now follows the line like the set pins. */
+  if (window.Markers) Markers.render();
   renderHistory();
   renderTotals();
   renderSeasons($('seasons-search') ? $('seasons-search').value : '');
