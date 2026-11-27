@@ -231,6 +231,21 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode \
             > native/android/upload-keystore.jks
           chmod 600 native/android/upload-keystore.jks
+      - name: Diagnose the signing environment (lengths only, never values)
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/native/android/upload-keystore.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          echo "VERSION_CODE length: ${#VERSION_CODE}"
+          echo "KEYSTORE_PATH length: ${#ANDROID_KEYSTORE_PATH}"
+          echo "KEYSTORE_PASSWORD length: ${#ANDROID_KEYSTORE_PASSWORD}"
+          echo "KEY_PASSWORD length: ${#ANDROID_KEY_PASSWORD}"
+          echo "KEY_ALIAS length: ${#ANDROID_KEY_ALIAS}"
+          echo "KEY_ALIAS value: ${ANDROID_KEY_ALIAS}"
+          ls -l native/android/upload-keystore.jks
       - name: Build the signed release bundle (AAB)
         working-directory: native/android
         env:
@@ -241,7 +256,7 @@ jobs:
           VERSION_CODE: ${{ github.run_number }}
         run: |
           chmod +x ./gradlew
-          ./gradlew bundleRelease --console=plain
+          ./gradlew bundleRelease --console=plain --stacktrace
       - name: Verify the AAB signature
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
