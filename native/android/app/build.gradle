@@ -7,7 +7,9 @@ android {
         applicationId "com.opossumfoot.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        // Play requires a higher versionCode on every upload. CI passes
+        // the workflow run number as VERSION_CODE; local builds stay 1.
+        versionCode (System.getenv("VERSION_CODE") ?: "1").toInteger()
         versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -16,8 +18,24 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            // Upload key for Play App Signing. Values come from the
+            // environment (GitHub secrets in CI) — never from the repo.
+            storeFile file(System.getenv("ANDROID_KEYSTORE_PATH") ?: "../upload-keystore.jks")
+            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "upload"
+            keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
     buildTypes {
         release {
+            // Sign only when the keystore is actually present (CI with
+            // secrets). A bare local checkout still configures fine.
+            if (file(System.getenv("ANDROID_KEYSTORE_PATH") ?: "../upload-keystore.jks").exists()
+                    && System.getenv("ANDROID_KEYSTORE_PASSWORD")) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
