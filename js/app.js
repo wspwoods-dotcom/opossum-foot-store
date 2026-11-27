@@ -12767,6 +12767,7 @@ function switchTab(name) {
   /* B15: while a pin is being placed the rest of the app is locked — the
      placement bar's own buttons are the only way out. */
   if (document.body.classList.contains('placing')) return;
+  fitAppHeight(); /* 2026-11-26: every tab switch re-pins the shell height (see fitAppHeight) */
   var tabs = document.querySelectorAll('#tabbar button');
   for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === name);
   var panes = document.querySelectorAll('.pane');
@@ -14831,6 +14832,11 @@ function isStandaloneApp() {
   } catch (e) { /* noop */ }
   return false;
 }
+function isNativeApp() {
+  try {
+    return !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
+  } catch (e) { return false; }
+}
 function fitAppHeight() {
   try {
     /* Keyboard regime (2026-11-25): while the iOS keyboard is open the
@@ -14840,7 +14846,16 @@ function fitAppHeight() {
        keyboard against the panes' inset padding. keyboard.js calls
        fitAppHeight() again on keyboardWillHide to resync. */
     if (window.__ofKbOpen) return;
-    if (isStandaloneApp()) {
+    /* 2026-11-26 (Build 118 field report): the native app is a
+       chromeless full-screen webview, so it takes the standalone path
+       too — 100vh is its true screen. It previously fell to the
+       innerHeight branch (navigator.standalone is false under
+       Capacitor), where one short innerHeight read (screen minus a
+       keyboard's height) stuck: the fixed body clipped to the short
+       layout viewport (the fl / bug-237961 failure shape), the title
+       slid under the clock, and the tab bar stranded mid-screen over
+       black until a tab switch happened to force a re-measure. */
+    if (isStandaloneApp() || isNativeApp()) {
       document.documentElement.classList.add('of-standalone');
       document.documentElement.style.setProperty('--app-h', '100vh');
     } else {
@@ -14848,6 +14863,7 @@ function fitAppHeight() {
     }
   } catch (e) { /* noop */ }
 }
+window.fitAppHeight = fitAppHeight;
 /* Item 8 (2026-11-24, Tanner): the fj viewport diagnostic readout
    (win/vv/scr/safeB/appH/bannerB, once shown in Settings → About) is
    REMOVED — element, updater, and call sites. It only ever READ the
@@ -14858,6 +14874,14 @@ if (typeof window !== 'undefined') {
   window.addEventListener('resize', fitAppHeight);
   window.addEventListener('orientationchange', fitAppHeight);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', fitAppHeight);
+  /* 2026-11-26: self-heal hooks — a stale short --app-h must not be
+     able to survive the user's next natural action. Returning to the
+     app and switching tabs re-measure by design now, not (as in the
+     Build 118 field report) by a tab switch's incidental side effect. */
+  window.addEventListener('focus', fitAppHeight);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) fitAppHeight();
+  });
 }
 fitAppHeight(); /* set it at parse time too, before first paint */
 
