@@ -9,8 +9,11 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Play requires a higher versionCode on every upload. CI passes
         // the workflow run number as VERSION_CODE; local builds stay 1.
-        versionCode (System.getenv("VERSION_CODE") ?: "1").toInteger()
-        versionName "1.0.0"
+        // Assignment form, matching namespace/compileSdk above: the
+        // method-call form of this line threw AGP's "Value is null"
+        // during evaluation in CI (runs 124/126) even with the env set.
+        versionCode = (System.getenv("VERSION_CODE") ?: "1").toInteger()
+        versionName = "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
