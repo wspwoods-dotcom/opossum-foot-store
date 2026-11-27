@@ -8,6 +8,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+        // Tanner's ruling 2026-11-26: shake-to-undo OFF app-wide. The app is
+        // used on foot in the field; moving the phone raised iOS's "Undo
+        // Typing" alert whenever a text field held focus (seen on Build 116).
+        application.applicationSupportsShakeToEdit = false
         return true
     }
 
